@@ -464,11 +464,11 @@ async function installSkills(
     : null;
   const isInstallableStatus = (status: string | undefined): boolean => status === 'active' || status === 'internal';
   const entries = await readdir(srcDir, { withFileTypes: true });
-  const shippedSkillNames = new Set<string>();
+  const staleCandidateSkillNames = new Set(manifest?.skills.map((skill) => skill.name) ?? []);
   let count = 0;
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    shippedSkillNames.add(entry.name);
+    staleCandidateSkillNames.add(entry.name);
     const status = skillStatusByName?.get(entry.name);
     if (skillStatusByName && !isInstallableStatus(status)) {
       if (options.verbose) {
@@ -525,7 +525,7 @@ async function installSkills(
   }
 
   if (options.force && manifest && existsSync(dstDir)) {
-    for (const staleSkill of shippedSkillNames) {
+    for (const staleSkill of staleCandidateSkillNames) {
       const status = skillStatusByName?.get(staleSkill);
       if (isInstallableStatus(status)) continue;
 

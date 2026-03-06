@@ -27,7 +27,11 @@ describe('omx setup skills overwrite behavior', () => {
       assert.equal(installed.has('ralph-init'), false);
       assert.equal(installed.has('frontend-ui-ux'), false);
       assert.equal(installed.has('pipeline'), false);
-      assert.equal(installed.has('configure-notifications'), false);
+      assert.equal(installed.has('configure-notifications'), true);
+      assert.equal(installed.has('configure-discord'), false);
+      assert.equal(installed.has('configure-telegram'), false);
+      assert.equal(installed.has('configure-slack'), false);
+      assert.equal(installed.has('configure-openclaw'), false);
     } finally {
       process.chdir(previousCwd);
       await rm(wd, { recursive: true, force: true });
@@ -43,7 +47,7 @@ describe('omx setup skills overwrite behavior', () => {
 
       await setup({ scope: 'project' });
 
-      const staleSkills = ['swarm', 'ecomode', 'ultraqa'];
+      const staleSkills = ['swarm', 'ecomode', 'ultraqa', 'configure-discord', 'configure-telegram', 'configure-slack', 'configure-openclaw'];
       for (const staleSkill of staleSkills) {
         const staleDir = join(wd, '.agents', 'skills', staleSkill);
         await mkdir(staleDir, { recursive: true });

@@ -1,10 +1,10 @@
 {
-  "generatedAt": "2026-03-05T00:57:34.285Z",
+  "generatedAt": "2026-03-06T00:19:14.230Z",
   "version": "2026.02.28.1",
   "counts": {
-    "skillCount": 33,
+    "skillCount": 38,
     "promptCount": 29,
-    "activeSkillCount": 21,
+    "activeSkillCount": 22,
     "activeAgentCount": 18
   },
   "coreSkills": [
@@ -248,6 +248,45 @@
       "internalRequired": false
     },
     {
+      "name": "configure-notifications",
+      "category": "utility",
+      "status": "active",
+      "core": false,
+      "internalRequired": false
+    },
+    {
+      "name": "configure-discord",
+      "category": "utility",
+      "status": "merged",
+      "canonical": "configure-notifications",
+      "core": false,
+      "internalRequired": false
+    },
+    {
+      "name": "configure-telegram",
+      "category": "utility",
+      "status": "merged",
+      "canonical": "configure-notifications",
+      "core": false,
+      "internalRequired": false
+    },
+    {
+      "name": "configure-slack",
+      "category": "utility",
+      "status": "merged",
+      "canonical": "configure-notifications",
+      "core": false,
+      "internalRequired": false
+    },
+    {
+      "name": "configure-openclaw",
+      "category": "utility",
+      "status": "merged",
+      "canonical": "configure-notifications",
+      "core": false,
+      "internalRequired": false
+    },
+    {
       "name": "ralph-init",
       "category": "utility",
       "status": "merged",
@@ -460,6 +499,22 @@
     {
       "name": "review",
       "canonical": "plan --review"
+    },
+    {
+      "name": "configure-discord",
+      "canonical": "configure-notifications"
+    },
+    {
+      "name": "configure-telegram",
+      "canonical": "configure-notifications"
+    },
+    {
+      "name": "configure-slack",
+      "canonical": "configure-notifications"
+    },
+    {
+      "name": "configure-openclaw",
+      "canonical": "configure-notifications"
     },
     {
       "name": "ralph-init",
