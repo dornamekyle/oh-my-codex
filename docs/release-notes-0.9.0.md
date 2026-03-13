@@ -27,6 +27,23 @@ Representative changes:
 - `dc83dfd` — fix(explore): harden sparkshell fallback paths
 - `25bdd23` — docs(guidance): refine explore and sparkshell usage
 
+### Important Spark Initiative notes
+
+For `0.9.0`, the important distribution contract is:
+
+- users can install OMX normally with `npm install -g oh-my-codex`
+- the npm package intentionally does **not** bundle all native binaries directly
+- tagged releases publish cross-platform native archives for:
+  - `omx-explore-harness`
+  - `omx-sparkshell`
+- packaged installs hydrate the matching native binary from the GitHub Release assets through `native-release-manifest.json`
+- CI now validates the Rust path more directly with:
+  - explicit Rust toolchain setup in the full build lane
+  - `cargo fmt --all --check`
+  - `cargo clippy --workspace --all-targets -- -D warnings`
+
+This keeps npm installs simple for users while still shipping verified cross-platform native helpers.
+
 ### Native release assets are now first-class
 
 `0.9.0` also upgrades OMX's release shape so the new native surfaces are publishable and consumable across platforms.
@@ -97,3 +114,12 @@ omx setup --force --scope project
 - [#789](https://github.com/Yeachan-Heo/oh-my-codex/pull/789) — distribute generated aspect tasks across workers
 - [#793](https://github.com/Yeachan-Heo/oh-my-codex/pull/793) — Windows Codex command shim probing fix
 - [#794](https://github.com/Yeachan-Heo/oh-my-codex/pull/794) — merge `experimental/dev` into `dev`
+
+## Related issues highlighted in this release
+
+- [#781](https://github.com/Yeachan-Heo/oh-my-codex/pull/781) — force low reasoning for sparkshell summaries
+- [#744](https://github.com/Yeachan-Heo/oh-my-codex/issues/744) — persist lifecycle profiles for linked Ralph vs default team runs
+- [#745](https://github.com/Yeachan-Heo/oh-my-codex/issues/745) — team cleanup policy hardening
+- [#746](https://github.com/Yeachan-Heo/oh-my-codex/issues/746) — team policy/governance split follow-through
+- [#741](https://github.com/Yeachan-Heo/oh-my-codex/issues/741) — release-readiness / linked team-Ralph runtime follow-up
+- [#732](https://github.com/Yeachan-Heo/oh-my-codex/issues/732) — related team stall/lifecycle cleanup follow-up

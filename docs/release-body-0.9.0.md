@@ -41,6 +41,14 @@ omx sparkshell --tmux-pane %12 --tail-lines 400
 - packed-install smoke verification in the release workflow
 - `build:full` validated as the one-shot release-oriented build path
 
+## Important Spark Initiative notes
+
+- Users can install OMX normally with `npm install -g oh-my-codex`.
+- The npm tarball intentionally excludes staged cross-platform native binaries.
+- Tagged releases publish verified native archives for `omx-explore-harness` and `omx-sparkshell`.
+- Packaged installs hydrate the matching native binary through `native-release-manifest.json`.
+- CI now hardens the Rust path with explicit toolchain setup, `cargo fmt --all --check`, and `cargo clippy --workspace --all-targets -- -D warnings`.
+
 ## Upgrade note
 
 If you use project-scoped OMX installs, rerun:
@@ -69,12 +77,21 @@ Validated locally on `dev` before tagging:
 
 ## Notable PRs
 
-- `#782` — explore routes qualifying read-only shell tasks via sparkshell
-- `#784` — cross-platform native publishing and release-pipeline follow-through
-- `#785` — team runtime lifecycle and cleanup hardening
-- `#786` — nested help routing cleanup
-- `#787` — centralized OMX default model resolution
-- `#788` — HUD branch/config loading hardening
-- `#789` — distribute generated aspect tasks across workers
-- `#793` — Windows Codex command shim probing fix
-- `#794` — merge `experimental/dev` into `dev`
+- [#782](https://github.com/Yeachan-Heo/oh-my-codex/pull/782) — explore routes qualifying read-only shell tasks via sparkshell
+- [#784](https://github.com/Yeachan-Heo/oh-my-codex/pull/784) — cross-platform native publishing and release-pipeline follow-through
+- [#785](https://github.com/Yeachan-Heo/oh-my-codex/pull/785) — team runtime lifecycle and cleanup hardening
+- [#786](https://github.com/Yeachan-Heo/oh-my-codex/pull/786) — nested help routing cleanup
+- [#787](https://github.com/Yeachan-Heo/oh-my-codex/pull/787) — centralized OMX default model resolution
+- [#788](https://github.com/Yeachan-Heo/oh-my-codex/pull/788) — HUD branch/config loading hardening
+- [#789](https://github.com/Yeachan-Heo/oh-my-codex/pull/789) — distribute generated aspect tasks across workers
+- [#793](https://github.com/Yeachan-Heo/oh-my-codex/pull/793) — Windows Codex command shim probing fix
+- [#794](https://github.com/Yeachan-Heo/oh-my-codex/pull/794) — merge `experimental/dev` into `dev`
+
+## Related issues
+
+- [#781](https://github.com/Yeachan-Heo/oh-my-codex/pull/781) — sparkshell summary reasoning hardening
+- [#744](https://github.com/Yeachan-Heo/oh-my-codex/issues/744) — lifecycle profile persistence
+- [#745](https://github.com/Yeachan-Heo/oh-my-codex/issues/745) — cleanup policy hardening
+- [#746](https://github.com/Yeachan-Heo/oh-my-codex/issues/746) — governance split follow-through
+- [#741](https://github.com/Yeachan-Heo/oh-my-codex/issues/741) — linked Ralph/team runtime follow-up
+- [#732](https://github.com/Yeachan-Heo/oh-my-codex/issues/732) — related team lifecycle follow-up
