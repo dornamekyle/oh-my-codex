@@ -199,7 +199,10 @@ export async function reconcileRalphSessionResume({
 
     const currentSessionDir = join(stateDir, 'sessions', currentOmxSessionId);
     const currentRalphPath = join(currentSessionDir, 'ralph-state.json');
-    const currentRalphState = await readJson(currentRalphPath);
+    const currentRalphExists = existsSync(currentRalphPath);
+    const currentRalphState = currentRalphExists
+      ? await readJson(currentRalphPath)
+      : null;
     const nowIso = new Date().toISOString();
 
     if (currentRalphState && currentRalphState.active === true) {
@@ -238,12 +241,12 @@ export async function reconcileRalphSessionResume({
       };
     }
 
-    if (currentRalphState) {
+    if (currentRalphExists) {
       return {
         currentOmxSessionId,
         resumed: false,
         updatedCurrentOwner: false,
-        reason: 'current_ralph_present',
+        reason: currentRalphState ? 'current_ralph_present' : 'current_ralph_unreadable',
         targetPath: currentRalphPath,
       };
     }
