@@ -47,7 +47,8 @@ export function isGhInstalled(): boolean {
     encoding: 'utf-8',
     stdio: ['ignore', 'ignore', 'ignore'],
     timeout: 3000,
-  });
+      windowsHide: true,
+    });
   return !result.error && result.status === 0;
 }
 

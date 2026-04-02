@@ -58,7 +58,8 @@ export function isGitRepository(cwd: string): boolean {
   const result = spawnSync('git', ['rev-parse', '--show-toplevel'], {
     cwd,
     encoding: 'utf-8',
-  });
+      windowsHide: true,
+    });
   return result.status === 0;
 }
 
@@ -77,6 +78,7 @@ function readGit(repoRoot: string, args: string[]): string {
       cwd: repoRoot,
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
     }).trim();
   } catch (error) {
     const err = error as NodeJS.ErrnoException & { stderr?: string | Buffer };
@@ -93,7 +95,8 @@ function validateBranchName(repoRoot: string, branchName: string): void {
   const result = spawnSync('git', ['check-ref-format', '--branch', branchName], {
     cwd: repoRoot,
     encoding: 'utf-8',
-  });
+      windowsHide: true,
+    });
   if (result.status === 0) return;
   const stderr = (result.stderr || '').trim();
   throw new Error(stderr || `invalid_worktree_branch:${branchName}`);
@@ -111,7 +114,8 @@ function isWorktreeDirty(worktreePath: string): boolean {
   const result = spawnSync('git', ['status', '--porcelain'], {
     cwd: worktreePath,
     encoding: 'utf-8',
-  });
+      windowsHide: true,
+    });
   if (result.status !== 0) {
     const stderr = (result.stderr || '').trim();
     throw new Error(stderr || `worktree_status_failed:${worktreePath}`);
@@ -123,7 +127,8 @@ export function readWorkspaceStatusLines(cwd: string): string[] {
   const result = spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], {
     cwd,
     encoding: 'utf-8',
-  });
+      windowsHide: true,
+    });
   if (result.status !== 0) {
     const stderr = (result.stderr || '').trim();
     throw new Error(stderr || `workspace_status_failed:${cwd}`);
@@ -233,7 +238,8 @@ function resolveGitCommonDir(cwd: string): string | null {
   const result = spawnSync('git', ['rev-parse', '--git-common-dir'], {
     cwd,
     encoding: 'utf-8',
-  });
+      windowsHide: true,
+    });
   if (result.status !== 0) return null;
   const value = (result.stdout || '').trim();
   if (!value) return null;
@@ -252,7 +258,8 @@ function readWorktreeEntryFromPath(repoRoot: string, worktreePath: string): GitW
   const headResult = spawnSync('git', ['rev-parse', 'HEAD'], {
     cwd: worktreePath,
     encoding: 'utf-8',
-  });
+      windowsHide: true,
+    });
   if (headResult.status !== 0) return null;
   const head = (headResult.stdout || '').trim();
   if (!head) return null;
@@ -260,7 +267,8 @@ function readWorktreeEntryFromPath(repoRoot: string, worktreePath: string): GitW
   const branchResult = spawnSync('git', ['symbolic-ref', '-q', 'HEAD'], {
     cwd: worktreePath,
     encoding: 'utf-8',
-  });
+      windowsHide: true,
+    });
   const branchRef = branchResult.status === 0 ? (branchResult.stdout || '').trim() : null;
 
   return {
@@ -402,7 +410,8 @@ export function ensureWorktree(plan: PlannedWorktreeTarget | { enabled: false })
   const result = spawnSync('git', addArgs, {
     cwd: plan.repoRoot,
     encoding: 'utf-8',
-  });
+      windowsHide: true,
+    });
 
   if (result.status !== 0) {
     const stderr = (result.stderr || '').trim();

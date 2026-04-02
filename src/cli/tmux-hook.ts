@@ -207,7 +207,9 @@ async function loadConfigForCommand(
 }
 
 function runTmux(args: string[]): { ok: true; stdout: string } | { ok: false; stderr: string } {
-  const result = spawnSync('tmux', args, { encoding: 'utf-8' });
+  const result = spawnSync('tmux', args, { encoding: 'utf-8',
+      windowsHide: true,
+    });
   if (result.error) {
     return { ok: false, stderr: result.error.message };
   }
@@ -447,7 +449,8 @@ async function testTmuxHook(args: string[]): Promise<void> {
   const result = spawnSync(process.execPath, [notifyHook, JSON.stringify(payload)], {
     cwd,
     encoding: 'utf-8',
-  });
+      windowsHide: true,
+    });
   if (result.error) {
     throw new Error(`failed to run notify-hook: ${result.error.message}`);
   }

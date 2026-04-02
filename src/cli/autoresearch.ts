@@ -156,7 +156,8 @@ function runAutoresearchTurn(worktreePath: string, instructionsFile: string, cod
     input: prompt,
     encoding: 'utf-8',
     env: process.env,
-  });
+      windowsHide: true,
+    });
 
   if (result.error) {
     throw result.error;
@@ -182,7 +183,8 @@ function resolveRepoRoot(cwd: string): string {
     cwd,
     encoding: 'utf-8',
     stdio: ['ignore', 'pipe', 'pipe'],
-  }).trim();
+      windowsHide: true,
+    }).trim();
 }
 
 export function parseAutoresearchArgs(args: readonly string[]): ParsedAutoresearchArgs {
@@ -277,12 +279,16 @@ async function runAutoresearchLoop(
 }
 
 function checkTmuxAvailable(): boolean {
-  const result = spawnSync('tmux', ['-V'], { stdio: 'pipe' });
+  const result = spawnSync('tmux', ['-V'], { stdio: 'pipe',
+      windowsHide: true,
+    });
   return result.status === 0;
 }
 
 function tmuxDisplay(target: string, format: string): string | null {
-  const result = spawnSync('tmux', ['display-message', '-p', '-t', target, format], { encoding: 'utf-8' });
+  const result = spawnSync('tmux', ['display-message', '-p', '-t', target, format], { encoding: 'utf-8',
+      windowsHide: true,
+    });
   if (result.error || result.status !== 0) return null;
   const value = (result.stdout || '').trim();
   return value || null;

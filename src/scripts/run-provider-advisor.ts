@@ -59,7 +59,8 @@ function ensureBinary(binary: string): void {
   const probe = spawnSync(binary, ['--version'], {
     stdio: 'ignore',
     encoding: 'utf8',
-  });
+      windowsHide: true,
+    });
 
   if (probe.error && (probe.error as NodeJS.ErrnoException).code === 'ENOENT') {
     const verify = `${binary} --version`;
@@ -153,7 +154,8 @@ async function main(): Promise<void> {
   const run = spawnSync(binary, ['-p', prompt], {
     encoding: 'utf8',
     maxBuffer: 10 * 1024 * 1024,
-  });
+      windowsHide: true,
+    });
 
   const stdout = run.stdout || '';
   const stderr = run.stderr || '';

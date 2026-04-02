@@ -257,7 +257,9 @@ export async function scaleUp(
         }
         try {
           if (w.pane_id) {
-            execFileSync('tmux', ['kill-pane', '-t', w.pane_id], { stdio: 'pipe' });
+            execFileSync('tmux', ['kill-pane', '-t', w.pane_id], { stdio: 'pipe',
+      windowsHide: true,
+    });
           }
         } catch {}
         if (w.worktree_path) {
@@ -280,7 +282,9 @@ export async function scaleUp(
 
       if (context.paneId) {
         try {
-          execFileSync('tmux', ['kill-pane', '-t', context.paneId], { stdio: 'pipe' });
+          execFileSync('tmux', ['kill-pane', '-t', context.paneId], { stdio: 'pipe',
+      windowsHide: true,
+    });
         } catch {}
       }
 

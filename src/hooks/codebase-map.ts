@@ -39,6 +39,7 @@ function getTrackedSourceFiles(cwd: string): string[] {
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'ignore'],
       timeout: 4000,
+      windowsHide: true,
     });
     return out
       .trim()

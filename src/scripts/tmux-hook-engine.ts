@@ -223,6 +223,7 @@ export function resolveCodexPane(): string {
   try {
     const sessionName = execFileSync('tmux', ['display-message', '-t', envPane, '-p', '#S'], {
       encoding: 'utf-8', timeout: 2000,
+      windowsHide: true,
     }).trim();
     if (!sessionName) return '';
 
@@ -295,6 +296,17 @@ export function paneLooksReady(captured: any): boolean {
   if (hasCodexWelcomePrompt) return true;
 
   return lines.some((line) => /^\s*(?:[›>❯]\s*)?[A-Z][A-Z0-9]+-\d+\s+only(?:\s*(?:…|\.{3}))?\s*$/iu.test(line));
+}
+
+export function paneShowsCodexViewport(captured: any): boolean {
+  const lines = normalizePaneLines(captured);
+  if (lines.length === 0) return false;
+  if (paneIsBootstrapping(lines)) return false;
+
+  const hasCodexBanner = lines.some((line) => /\bOpenAI Codex\b/i.test(line));
+  if (!hasCodexBanner) return false;
+
+  return lines.some((line) => /(?:^|\s)(?:model|directory):/i.test(line));
 }
 
 export function paneHasActiveTask(captured: any): boolean {

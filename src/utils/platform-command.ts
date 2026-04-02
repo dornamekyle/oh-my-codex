@@ -206,9 +206,10 @@ export function spawnPlatformCommandSync(
   spawnImpl: SpawnSyncLike = spawnSync,
 ): ProbedPlatformCommand {
   const spec = buildPlatformCommandSpec(command, args, platform, env, existsImpl);
+  const baseOptions = platform === 'win32' ? { ...options, windowsHide: true } : options;
   const spawnOptions = shouldUseWindowsVerbatimArguments(platform, spec)
-    ? { ...options, windowsVerbatimArguments: true }
-    : options;
+    ? { ...baseOptions, windowsVerbatimArguments: true }
+    : baseOptions;
   const result = spawnImpl(spec.command, spec.args, spawnOptions);
   if (!shouldRetryWithNodeHost(spec, result.error as NodeJS.ErrnoException | undefined, platform)) {
     return { spec, result };

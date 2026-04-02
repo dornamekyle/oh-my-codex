@@ -34,7 +34,8 @@ export function getCurrentTmuxSession(): string | null {
         encoding: "utf-8",
         timeout: 3000,
         stdio: ["pipe", "pipe", "pipe"],
-      }).trim();
+      windowsHide: true,
+    }).trim();
       if (sessionName) return sessionName;
     } catch {
       // fall through to PID-based detection
@@ -94,7 +95,8 @@ function detectTmuxSessionByPid(): string | null {
           encoding: "utf-8",
           timeout: 1000,
           stdio: ["pipe", "pipe", "pipe"],
-        }).trim();
+      windowsHide: true,
+    }).trim();
         const ppid = parseInt(ppidStr, 10);
         if (isNaN(ppid) || ppid <= 1) break;
         currentPid = ppid;
@@ -151,6 +153,7 @@ export function captureTmuxPane(paneId?: string | null, lines: number = 12): str
       encoding: "utf-8",
       timeout: 3000,
       stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
     }).trim();
     return output || null;
   } catch {
@@ -240,7 +243,8 @@ function detectTmuxPaneByPid(): string | null {
           encoding: "utf-8",
           timeout: 1000,
           stdio: ["pipe", "pipe", "pipe"],
-        }).trim();
+      windowsHide: true,
+    }).trim();
         const ppid = parseInt(ppidStr, 10);
         if (isNaN(ppid) || ppid <= 1) break;
         currentPid = ppid;

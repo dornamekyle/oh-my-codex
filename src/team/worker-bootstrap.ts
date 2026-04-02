@@ -126,6 +126,7 @@ function tryReadGitValue(cwd: string, args: string[]): string | null {
       cwd,
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
     }).trim();
     return value || null;
   } catch {
@@ -139,6 +140,7 @@ function isTracked(worktreePath: string, fileName: string): boolean {
       cwd: worktreePath,
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
     });
     return true;
   } catch {
@@ -183,7 +185,8 @@ export async function writeWorkerWorktreeRootAgentsFile(
         cwd: options.worktreePath,
         encoding: "utf-8",
         stdio: ["ignore", "pipe", "pipe"],
-      });
+      windowsHide: true,
+    });
       skipWorktreeApplied = true;
     } catch {
       skipWorktreeApplied = false;
@@ -247,7 +250,8 @@ export async function removeWorkerWorktreeRootAgentsFile(
         cwd: worktreePath,
         encoding: "utf-8",
         stdio: ["ignore", "pipe", "pipe"],
-      });
+      windowsHide: true,
+    });
     } catch {
       // Best-effort cleanup only.
     }

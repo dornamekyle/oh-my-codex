@@ -448,16 +448,22 @@ async function resolveActiveTeamState(): Promise<ActiveTeamResult> {
 async function emitRalphContinueSteer(paneId: string, message: string): Promise<void> {
   const markedText = `${message} ${DEFAULT_MARKER}`;
   await new Promise<void>((resolve) => {
-    const typed = spawnSync('tmux', ['send-keys', '-t', paneId, '-l', markedText], { encoding: 'utf-8' });
+    const typed = spawnSync('tmux', ['send-keys', '-t', paneId, '-l', markedText], { encoding: 'utf-8',
+      windowsHide: true,
+    });
     if (typed.status !== 0) throw new Error((typed.stderr || typed.stdout || '').trim() || 'tmux send-keys failed');
     setTimeout(resolve, 100);
   });
   await new Promise<void>((resolve) => {
-    const submitA = spawnSync('tmux', ['send-keys', '-t', paneId, 'C-m'], { encoding: 'utf-8' });
+    const submitA = spawnSync('tmux', ['send-keys', '-t', paneId, 'C-m'], { encoding: 'utf-8',
+      windowsHide: true,
+    });
     if (submitA.status !== 0) throw new Error((submitA.stderr || submitA.stdout || '').trim() || 'tmux send-keys C-m failed');
     setTimeout(resolve, 100);
   });
-  const submitB = spawnSync('tmux', ['send-keys', '-t', paneId, 'C-m'], { encoding: 'utf-8' });
+  const submitB = spawnSync('tmux', ['send-keys', '-t', paneId, 'C-m'], { encoding: 'utf-8',
+      windowsHide: true,
+    });
   if (submitB.status !== 0) {
     throw new Error((submitB.stderr || submitB.stdout || '').trim() || 'tmux send-keys C-m failed');
   }
@@ -881,6 +887,11 @@ async function runFallbackAutoNudgeTick(): Promise<void> {
   const persistedAutoNudgeState = await readAutoNudgeState();
   const autoNudgeConfig = await loadAutoNudgeConfig();
   const semanticSignature = normalizeAutoNudgeSignatureText(lastMessage);
+  if (signature && safeString(persistedAutoNudgeState?.lastSignature) === signature) {
+    lastFallbackAutoNudge.last_reason = 'already_nudged_for_signature';
+    lastFallbackAutoNudge.last_nudged_signature = signature;
+    return;
+  }
   const lastNudgeAtMs = parseIsoMillis(safeString(persistedAutoNudgeState?.lastNudgeAt));
   if (
     semanticSignature
@@ -1096,7 +1107,8 @@ async function invokeNotifyHook(payload: Record<string, unknown>, filePath: stri
   const result = spawnSync(process.execPath, [notifyScript, JSON.stringify(payload)], {
     cwd,
     encoding: 'utf-8',
-  });
+      windowsHide: true,
+    });
   const ok = result.status === 0;
   await eventLog({
     type: 'fallback_notify',

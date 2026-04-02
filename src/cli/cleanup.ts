@@ -102,7 +102,8 @@ export function parsePsOutput(output: string): ProcessEntry[] {
 export function listOmxProcesses(): ProcessEntry[] {
   const output = execFileSync('ps', ['axww', '-o', 'pid=,ppid=,command='], {
     encoding: 'utf-8',
-  });
+      windowsHide: true,
+    });
   return parsePsOutput(output);
 }
 

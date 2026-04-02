@@ -4,6 +4,29 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.11.12] - 2026-04-02
+
+Patch release for Windows flicker reductions, team/runtime seam cleanup, safer auto-nudge hygiene, cross-platform Node test execution, and workflow-doc alignment after `0.11.11`.
+
+### Fixed
+- **Windows terminal flicker reductions** — `windowsHide` coverage now spans the remaining child-process launch paths, and filesystem-based git info reads avoid the extra Windows console flash path. (PRs [#1104](https://github.com/Yeachan-Heo/oh-my-codex/pull/1104), [#1107](https://github.com/Yeachan-Heo/oh-my-codex/pull/1107), [#1123](https://github.com/Yeachan-Heo/oh-my-codex/pull/1123))
+- **Team/runtime seam cleanup** — team cwd metadata now resolves canonically from `manifest.v2`, and dispatch/mailbox transitions no longer straddle the remaining dual-write seam gaps. (PRs [#1114](https://github.com/Yeachan-Heo/oh-my-codex/pull/1114), [#1126](https://github.com/Yeachan-Heo/oh-my-codex/pull/1126))
+- **Auto-nudge / tmux session hygiene** — stale-turn auto-nudges stay disarmed after cooldown, readiness checks tolerate prompt scroll-off, and nudges stay limited to OMX-managed tmux sessions. (PRs [#1091](https://github.com/Yeachan-Heo/oh-my-codex/pull/1091), [#1093](https://github.com/Yeachan-Heo/oh-my-codex/pull/1093), [#1119](https://github.com/Yeachan-Heo/oh-my-codex/pull/1119))
+
+### Changed
+- **Cross-platform Node test runner** — Node test execution can now enumerate compiled test files without depending on POSIX `find`, making the release/CI test path portable across platforms. (PR [#1122](https://github.com/Yeachan-Heo/oh-my-codex/pull/1122))
+- **Workflow docs standardized** — onboarding/docs now consistently steer users through deep-interview -> ralplan -> team/ralph, with linked legacy skill roots resolved through one canonical path. (PRs [#1128](https://github.com/Yeachan-Heo/oh-my-codex/pull/1128), [#1132](https://github.com/Yeachan-Heo/oh-my-codex/pull/1132))
+- **Release metadata sync** — Node/Cargo package metadata, lockfiles, changelog, and release collateral are aligned to `0.11.12` for the patch cut.
+
+### Verified
+- `cargo check --workspace`
+- `npm run build`
+- `npm run lint`
+- `node --test dist/cli/__tests__/version-sync-contract.test.js`
+- release-workflow inline version-sync check from `.github/workflows/release.yml`
+- `npm run test:node:cross-platform`
+- `npm run smoke:packed-install`
+
 ## [0.11.10] - 2026-03-30
 
 Patch release for approved handoff alias parsing hardening and release metadata synchronization after `0.11.9`.
@@ -42,6 +65,7 @@ Patch release for deeper deep-interview / ralplan coordination, setup repair, an
 - **Release metadata sync** — Node and Cargo package metadata are bumped to `0.11.9` for this patch release.
 
 ### Verified
+- `cargo check --workspace`
 - `npm run build`
 - `npm run lint`
 - `npm run check:no-unused`
@@ -63,6 +87,7 @@ Hotfix release for deep-interview nudge suppression and duplicate fresh-leader n
 - **Release metadata sync** — Node and Cargo package metadata are bumped to `0.11.8` for this hotfix release.
 
 ### Verified
+- `cargo check --workspace`
 - `npm run build`
 - `node --test --test-reporter=spec dist/hooks/__tests__/notify-hook-auto-nudge.test.js`
 - `node --test --test-reporter=spec dist/hooks/__tests__/notify-hook-team-leader-nudge.test.js`

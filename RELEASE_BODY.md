@@ -1,41 +1,46 @@
-# oh-my-codex v0.11.10
+# oh-my-codex v0.11.12
 
-**Patch release for approved handoff alias parsing hardening and clean release metadata sync**
+**Patch release for Windows flicker fixes, team/runtime seam hardening, cross-platform Node test execution, and workflow docs alignment**
 
-`0.11.10` follows `0.11.9` with a deliberately narrow release: it locks approved execution handoff parsing against quoting regressions for both Ralph and Team alias forms, then cuts a clean metadata-aligned patch release.
+`0.11.12` follows `0.11.11` with a focused patch train from `v0.11.11..dev`: it removes more Windows conhost flicker paths, closes additional team/runtime seam gaps, makes Node test execution portable across platforms, and standardizes docs around the current deep-interview → ralplan → team/ralph workflow.
 
 ## Highlights
 
-- Approved `$ralph` launch hints are now protected by single-quoted regression coverage.
-- Approved `$team` launch hints are now protected by single-quoted regression coverage.
-- Node and Cargo release metadata are synchronized to `0.11.10` for a clean release cut.
+- Windows users get broader flicker prevention from `windowsHide` coverage and filesystem-based git-info reads.
+- Team/runtime state handling closes more thin-adapter seam gaps while keeping tmux auto-nudge behavior scoped to OMX-managed sessions.
+- Node test execution is now cross-platform, reducing shell-environment assumptions in release verification.
+- Workflow docs now consistently point to the current OMX planning/execution path.
 
 ## What’s Changed
 
 ### Fixes
-- add regression coverage for single-quoted approved `$ralph` launch hints in planning artifact parsing
-- add regression coverage for single-quoted approved `$team` launch hints in planning artifact parsing
+- remove more Windows terminal flicker paths across child-process launches and git-info reads
+- harden team/runtime seam handling across manifest.v2 cwd resolution plus dispatch/mailbox state transitions
+- keep tmux readiness + auto-nudge behavior restricted to OMX-managed sessions
 
 ### Changed
-- bump release metadata from `0.11.9` to `0.11.10` across the Node and Cargo packages
-- refresh `CHANGELOG.md`, `docs/release-notes-0.11.10.md`, and `RELEASE_BODY.md` for the release cut
+- add a cross-platform Node test-file runner for release/test portability
+- standardize workflow docs around deep-interview → ralplan → team/ralph
+- bump release metadata from `0.11.11` to `0.11.12` across the Node and Cargo workspace packages and lockfiles
+- refresh `CHANGELOG.md`, `docs/release-notes-0.11.12.md`, and `RELEASE_BODY.md` for the release cut
 
 ## Verification
 
-- `npx biome lint src/planning/__tests__/artifacts.test.ts`
-- `npm run build && node --test dist/planning/__tests__/artifacts.test.js`
-- `npm run test:sparkshell`
-- `npm run test:team:cross-rebase-smoke`
+- `cargo check --workspace`
+- `npm run build`
+- `npm run lint`
+- `node --test dist/cli/__tests__/version-sync-contract.test.js`
+- release-workflow inline version-sync check from `.github/workflows/release.yml`
+- `npm run test:node:cross-platform`
 - `npm run smoke:packed-install`
-- `npm test`
 
 ## Remaining risk
 
-- This release is intentionally narrow and centered on regression coverage plus metadata synchronization.
-- Future approved handoff grammar changes should keep alias-form coverage aligned across both Ralph and Team paths.
+- This release is still a targeted patch verification pass, not a full GitHub Actions matrix rerun.
+- Future workflow doc edits should preserve the deep-interview → ralplan → team/ralph path as the default onboarding story.
 
 ## Contributors
 
 - [@Yeachan-Heo](https://github.com/Yeachan-Heo) (Bellman)
 
-**Full Changelog**: [`v0.11.9...v0.11.10`](https://github.com/Yeachan-Heo/oh-my-codex/compare/v0.11.9...v0.11.10)
+**Full Changelog**: [`v0.11.11...v0.11.12`](https://github.com/Yeachan-Heo/oh-my-codex/compare/v0.11.11...v0.11.12)

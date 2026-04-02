@@ -1025,7 +1025,9 @@ async function cleanupLegacySkillPromptShims(
 }
 
 function isGitHubCliConfigured(): boolean {
-  const result = spawnSync("gh", ["auth", "status"], { stdio: "ignore" });
+  const result = spawnSync("gh", ["auth", "status"], { stdio: "ignore",
+      windowsHide: true,
+    });
   return result.status === 0;
 }
 
