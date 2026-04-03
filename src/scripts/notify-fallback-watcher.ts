@@ -5,6 +5,7 @@ import { appendFile, mkdir, open, readFile, readdir, rename, stat, unlink, write
 import { spawnSync } from 'child_process';
 import { dirname, join, resolve } from 'path';
 import { homedir } from 'os';
+import { spawnPlatformCommandSync } from '../utils/platform-command.js';
 import { drainPendingTeamDispatch } from './notify-hook/team-dispatch.js';
 import {
   maybeAutoNudge,
@@ -464,22 +465,19 @@ async function resolveActiveTeamState(): Promise<ActiveTeamResult> {
 async function emitRalphContinueSteer(paneId: string, message: string): Promise<void> {
   const markedText = `${message} ${DEFAULT_MARKER}`;
   await new Promise<void>((resolve) => {
-    const typed = spawnSync('tmux', ['send-keys', '-t', paneId, '-l', markedText], { encoding: 'utf-8',
-      windowsHide: true,
-    });
+    const { result: typed } = spawnPlatformCommandSync('tmux', ['send-keys', '-t', paneId, '-l', markedText], { encoding: 'utf-8' });
+    if (typed.error) throw new Error(typed.error.message);
     if (typed.status !== 0) throw new Error((typed.stderr || typed.stdout || '').trim() || 'tmux send-keys failed');
     setTimeout(resolve, 100);
   });
   await new Promise<void>((resolve) => {
-    const submitA = spawnSync('tmux', ['send-keys', '-t', paneId, 'C-m'], { encoding: 'utf-8',
-      windowsHide: true,
-    });
+    const { result: submitA } = spawnPlatformCommandSync('tmux', ['send-keys', '-t', paneId, 'C-m'], { encoding: 'utf-8' });
+    if (submitA.error) throw new Error(submitA.error.message);
     if (submitA.status !== 0) throw new Error((submitA.stderr || submitA.stdout || '').trim() || 'tmux send-keys C-m failed');
     setTimeout(resolve, 100);
   });
-  const submitB = spawnSync('tmux', ['send-keys', '-t', paneId, 'C-m'], { encoding: 'utf-8',
-      windowsHide: true,
-    });
+  const { result: submitB } = spawnPlatformCommandSync('tmux', ['send-keys', '-t', paneId, 'C-m'], { encoding: 'utf-8' });
+  if (submitB.error) throw new Error(submitB.error.message);
   if (submitB.status !== 0) {
     throw new Error((submitB.stderr || submitB.stdout || '').trim() || 'tmux send-keys C-m failed');
   }

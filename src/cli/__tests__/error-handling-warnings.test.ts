@@ -27,7 +27,7 @@ describe('error-handling warning guards', () => {
     assert.match(source, /failed to write hook-derived watcher pid file/);
     assert.match(source, /failed to remove notify fallback watcher pid file/);
     assert.match(source, /failed to remove hook-derived watcher pid file/);
-    assert.match(source, /detached: true,\s+stdio: "ignore",\s+windowsHide: true,/);
+    assert.match(source, /detached:\s*shouldDetachBackgroundHelper\(\),\s+stdio: "ignore",\s+windowsHide: true,/);
     assert.match(source, /stdio: "ignore",\s+timeout: 3000,\s+windowsHide: true,/);
   });
 

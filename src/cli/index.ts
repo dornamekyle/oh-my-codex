@@ -64,6 +64,7 @@ import {
   buildUnregisterClientAttachedReconcileArgs,
   buildUnregisterResizeHookArgs,
   enableMouseScrolling,
+  isMsysOrGitBash,
   isNativeWindows,
   isTmuxAvailable,
 } from "../team/tmux-session.js";
@@ -2245,6 +2246,13 @@ function hookDerivedWatcherPidPath(cwd: string): string {
   return join(cwd, ".omx", "state", "hook-derived-watcher.pid");
 }
 
+export function shouldDetachBackgroundHelper(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  return !(platform === "win32" && isMsysOrGitBash(env, platform));
+}
+
 function parseWatcherPidFile(content: string): number | null {
   const trimmed = content.trim();
   if (!trimmed) return null;
@@ -2334,7 +2342,7 @@ async function startNotifyFallbackWatcher(
     ],
     {
       cwd,
-      detached: true,
+      detached: shouldDetachBackgroundHelper(),
       stdio: "ignore",
       windowsHide: true,
       env: buildNotifyFallbackWatcherEnv(process.env, {
@@ -2402,7 +2410,7 @@ async function startHookDerivedWatcher(cwd: string): Promise<void> {
   );
   const child = spawn(process.execPath, [watcherScript, "--cwd", cwd], {
     cwd,
-    detached: true,
+    detached: shouldDetachBackgroundHelper(),
     stdio: "ignore",
     windowsHide: true,
     env: process.env,

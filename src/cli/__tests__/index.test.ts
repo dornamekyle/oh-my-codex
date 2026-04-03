@@ -34,6 +34,7 @@ import {
   resolveNotifyTempContract,
   buildNotifyTempStartupMessages,
   buildNotifyFallbackWatcherEnv,
+  shouldDetachBackgroundHelper,
   resolveNotifyFallbackWatcherScript,
   resolveHookDerivedWatcherScript,
   resolveNotifyHookScript,
@@ -752,6 +753,26 @@ describe("resolveCodexLaunchPolicy", () => {
 
   it("launches directly on native Windows when tmux is unavailable", () => {
     assert.equal(resolveCodexLaunchPolicy({}, "win32", false, true), "direct");
+  });
+});
+
+describe("shouldDetachBackgroundHelper", () => {
+  it("keeps background helpers attached under win32 Git Bash", () => {
+    assert.equal(
+      shouldDetachBackgroundHelper({ MSYSTEM: "MINGW64" }, "win32"),
+      false,
+    );
+  });
+
+  it("keeps detached helpers on native win32", () => {
+    assert.equal(shouldDetachBackgroundHelper({}, "win32"), true);
+  });
+
+  it("keeps detached helpers on non-Windows platforms", () => {
+    assert.equal(
+      shouldDetachBackgroundHelper({ MSYSTEM: "MINGW64" }, "linux"),
+      true,
+    );
   });
 });
 
