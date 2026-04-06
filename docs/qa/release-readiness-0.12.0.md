@@ -1,11 +1,11 @@
-# Release Readiness Draft - 0.12.0
+# Release Readiness Verdict - 0.12.0
 
 Date: **2026-04-06**
 Target version: **0.12.0**
 Comparison base: **`v0.11.13..HEAD`**
-Verdict: **NO-GO (draft)** ❌
+Verdict: **GO** ✅
 
-`0.12.0` is shaping up as a feature/minor release rather than another patch cut. The release window since `v0.11.13` is broad (`180` files changed, `+9725 / -2736`, `88` commits total / `63` non-merge commits), so the release notes need to emphasize the new native Codex hook lane, the team/runtime delivery contract hardening, and the prompt/docs contract refresh rather than treating this as routine metadata churn.
+`0.12.0` is a feature/minor release rather than another patch cut. The release window since `v0.11.13` is broad (`185` files changed, `+9805 / -2745`, `91` commits total / `65` non-merge commits), so the release collateral emphasizes the new native Codex hook lane, the team/runtime delivery contract hardening, and the prompt/docs contract refresh rather than treating this as routine metadata churn.
 
 ## Scope reviewed
 
@@ -16,14 +16,14 @@ Verdict: **NO-GO (draft)** ❌
 - quality-first guidance + agent contract refresh (`AGENTS.md`, `templates/AGENTS.md`, `prompts/*.md`, `docs/prompt-guidance-*`, `skills/team/SKILL.md`)
 - documentation and localization refresh (`docs/readme/**`, `docs/openclaw-integration.uk.md`, `README.md`, `.github/ISSUE_TEMPLATE/config.yml`)
 
-## Current release-shape evidence
+## Release-shape evidence
 
-- current `package.json` version: **`0.11.13`**
-- current `Cargo.toml` workspace version: **`0.11.13`**
-- detached worker HEAD: **`d850927`** (contained by `dev` and `release/0.12.0`)
+- current `package.json` version: **`0.12.0`**
+- current `Cargo.toml` workspace version: **`0.12.0`**
+- current release branch HEAD includes version-sync and release-readiness prep commits on top of `d850927`
 - diff reviewed against explicit release base: **`v0.11.13..HEAD`**
-- release-notes artifact for `0.12.0`: **not yet present** at review time
-- `RELEASE_BODY.md`: **still targets `v0.11.13`** at review time
+- release-notes artifact for `0.12.0`: **present**
+- `RELEASE_BODY.md`: **targets `v0.12.0`**
 
 ## Required release-note items
 
@@ -51,21 +51,27 @@ Verdict: **NO-GO (draft)** ❌
 | CLI / prompt contract / docs surface | `src/cli/index.ts`, `AGENTS.md`, `templates/AGENTS.md`, `prompts/*.md`, `docs/prompt-guidance-*`, `skills/team/SKILL.md` | quality-first prompt defaults; legacy alias cleanup; stronger verification language | `node --test dist/cli/__tests__/index.test.js dist/cli/__tests__/autoresearch-guided.test.js dist/cli/__tests__/cleanup.test.js dist/cli/__tests__/error-handling-warnings.test.js` plus `node dist/scripts/generate-catalog-docs.js --check` |
 | Docs + localization collateral | `docs/readme/**`, `docs/openclaw-integration.uk.md`, `README.md`, `.github/ISSUE_TEMPLATE/config.yml` | translated README relocation; Ukrainian docs; release-facing docs cleanup | `git diff --check v0.11.13..HEAD`; manual doc spot-check against release note bullets |
 
-## Local validation evidence completed for this review draft
+## Validation evidence
 
 | Check | Command | Result |
 |---|---|---|
 | Diff scope inventory | `git diff --name-only v0.11.13..HEAD` | PASS |
-| Commit inventory | `git log --oneline v0.11.13..HEAD` | PASS |
-| Diff size summary | `git diff --stat v0.11.13..HEAD` | PASS |
-| Release metadata spot-check | `node -p "require('./package.json').version"` + `python` read of `Cargo.toml` | PASS (`0.11.13` / `0.11.13`; confirms bump still pending) |
+| Commit inventory | `git rev-list --count --no-merges v0.11.13..HEAD` + `git rev-list --count --merges v0.11.13..HEAD` | PASS (`65` non-merge / `26` merge) |
+| Version sync contract | `node --test dist/cli/__tests__/version-sync-contract.test.js` | PASS |
+| CLI version smoke | `node dist/cli/omx.js version` | PASS (`oh-my-codex v0.12.0`) |
+| Build | `npm run build` | PASS |
+| Lint | `npm run lint` | PASS |
+| Full Node suite | `npm test` | PASS (`2949` pass / `0` fail) |
+| Rust runtime core | `cargo test -p omx-runtime-core` | PASS (`54` pass / `0` fail) |
+| Packed install smoke | `npm run smoke:packed-install` | PASS |
+| Working-tree whitespace check | `git diff --check origin/main...HEAD` | PASS |
 
-## Current blockers before tag/release
+## Notes from modular review
 
-- `package.json`, `Cargo.toml`, lockfiles, and generated release collateral have **not** been bumped to `0.12.0` yet.
-- `docs/release-notes-0.12.0.md` is not present yet, and `RELEASE_BODY.md` still describes `v0.11.13`.
-- Because the release window is broad across runtime, notify-hook, CLI, and docs surfaces, a full release verification sweep should be rerun **after** the version bump + final collateral land.
+- Initial team review surfaced a provisional NO-GO while detached worker environments had incomplete local package installs and while release collateral still targeted `0.11.13`.
+- After syncing root dependencies with `npm ci`, rerunning the root release gates, and refreshing collateral, the suspected watcher/team blockers did **not** reproduce in the release branch verification run.
+- Review-only findings still informed the shipped collateral: native hook ownership, pre/post guidance, runtime/team delivery hardening, Windows/tmux reliability, and docs/prompt guidance refresh are the main release-note themes.
 
-## Final draft verdict
+## Final verdict
 
-Release **0.12.0** is **not ready to tag/publish yet** based on the current tree, but the release-note inventory and verification plan above identify the major modules and the minimum evidence expected once the final release artifacts land.
+Release **0.12.0** is **ready for branch push and PR handoff**.

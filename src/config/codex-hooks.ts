@@ -9,7 +9,6 @@ export interface ManagedCodexHooksConfig {
     Stop: Array<Record<string, unknown>>;
   };
 }
-
 function buildCommandHook(
   command: string,
   options: {
@@ -68,4 +67,3 @@ export function buildManagedCodexHooksConfig(pkgRoot: string): ManagedCodexHooks
     },
   };
 }
-

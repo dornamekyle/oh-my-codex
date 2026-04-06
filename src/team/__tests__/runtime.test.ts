@@ -896,21 +896,25 @@ sleep 5
       assert.equal(runtime.config.worker_launch_mode, 'prompt');
       assert.equal((runtime.config.workers[0]?.pid ?? 0) > 0, true);
 
-      let argv: string[] | null = null;
-      for (let attempt = 0; attempt < 50; attempt += 1) {
-        if (existsSync(capturePath)) {
-          argv = (await readFile(capturePath, 'utf-8')).trim().split('\n');
-          break;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-      assert.ok(argv, 'gemini argv capture file should be written');
-      assert.deepEqual(argv, [
+      const expectedArgv = [
         '--approval-mode',
         'yolo',
         '-i',
         'Read .omx/state/team/team-gemini-prompt/workers/worker-1/inbox.md, start work now, report concrete progress, then continue assigned work or next feasible task.',
-      ]);
+      ];
+      let argv: string[] | null = null;
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        if (existsSync(capturePath)) {
+          const captured = (await readFile(capturePath, 'utf-8')).trim().split('\n').filter(Boolean);
+          if (captured.length >= expectedArgv.length) {
+            argv = captured;
+            break;
+          }
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      assert.ok(argv, 'gemini argv capture file should be written');
+      assert.deepEqual(argv, expectedArgv);
 
       await shutdownTeam(runtime.teamName, cwd, { force: true });
       runtime = null;
