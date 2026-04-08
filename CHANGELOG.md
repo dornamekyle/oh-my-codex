@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.12.3] - 2026-04-08
+
+Follow-up patch release for the `v0.12.2..v0.12.3` train: `$team` prompt-routing correctness and duplicate team launch teardown. This ships PR [#1364](https://github.com/Yeachan-Heo/oh-my-codex/pull/1364) that was intended for `0.12.2` but finished its conflict resolution after the `0.12.2` cut.
+
+### Fixed
+- **`$team` keyword prompt routing** — `UserPromptSubmit` detection of `$team` now seeds root `team-state.json` and nudges operators toward `omx team ...` / `omx team --help` instead of silently misrouting the prompt. (PR [#1364](https://github.com/Yeachan-Heo/oh-my-codex/pull/1364))
+- **Duplicate active same-name team launches** — `startTeam` now rejects duplicate active same-name team launches with a `team_name_conflict` error before mutating team state or provisioning worktrees, so the existing team config and tasks stay intact. (PR [#1364](https://github.com/Yeachan-Heo/oh-my-codex/pull/1364))
+
+### Changed
+- **Release metadata sync** — Node/Cargo package metadata, lockfiles, changelog, release body, and release notes are aligned to `0.12.3`.
+
+### Verified
+- `npm run build`
+- `npm run lint`
+- `npm test`
+- `npm run smoke:packed-install`
+
 ## [0.12.2] - 2026-04-08
 
 Patch release for the `v0.12.1..v0.12.2` train: Windows team worker boot and shutdown hardening, postLaunch mode-state shutdown-race recovery, canonical HUD skill-state visibility, and team state preservation on monitor-driven exits.

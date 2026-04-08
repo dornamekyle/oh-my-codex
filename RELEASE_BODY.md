@@ -1,29 +1,23 @@
-# oh-my-codex v0.12.2
+# oh-my-codex v0.12.3
 
-**Patch release for Windows team worker boot/shutdown safety, postLaunch mode-state shutdown-race recovery, canonical HUD skill-state visibility, and team state preservation on monitor-driven exits**
+**Follow-up patch release for `$team` prompt-routing correctness and duplicate team launch teardown**
 
-`0.12.2` follows `0.12.1` with the full `v0.12.1..v0.12.2` patch train: native Windows + psmux team workers now boot and shut down cleanly, postLaunch mode-state cleanup recovers transient shutdown-race JSON without crashing, HUD workflow badges stop outliving their session, and team state is preserved until operators explicitly request shutdown.
+`0.12.3` is a tight follow-up to `0.12.2` that ships PR [#1364](https://github.com/Yeachan-Heo/oh-my-codex/pull/1364), which was intended to land in `0.12.2` but finished its conflict resolution after the `0.12.2` cut. This release closes that gap so operators get the corrected `$team` keyword routing and the duplicate same-name team launch guard.
 
 ## Highlights
 
-- Native Windows + psmux split-pane shutdown no longer kills the leader pane during `omx team shutdown --force`.
-- Native Windows team worker panes boot through an explicit PowerShell path instead of POSIX `/bin/sh -lc`, so workers actually report ready.
-- `postLaunch` mode-state cleanup now survives transient shutdown races by recovering empty or truncated JSON into a minimal inactive record.
-- HUD workflow badges follow canonical session-scoped skill-active state so stale root-only mode state no longer surfaces as a ghost workflow.
-- Monitor-detected terminal and failure conditions in the runtime CLI stay report-only; team state is preserved until an explicit shutdown is issued.
-- Release metadata and collateral are aligned to `0.12.2`.
+- `$team` detected in `UserPromptSubmit` now seeds root `team-state.json` and nudges operators toward `omx team ...` / `omx team --help` instead of silently misrouting the prompt.
+- `startTeam` now rejects duplicate active same-name team launches with a `team_name_conflict` error before mutating team state or provisioning worktrees.
+- Release metadata and collateral are aligned to `0.12.3`.
 
 ## What’s Changed
 
 ### Fixes
-- preserve the leader pane on native Windows + psmux split-pane shutdown by skipping process-tree prekill when leader/client ancestry overlaps (PR [#1358](https://github.com/Yeachan-Heo/oh-my-codex/pull/1358))
-- make `postLaunch` mode-state cleanup recover transient shutdown-race JSON while still warning on structurally complete malformed state (PR [#1360](https://github.com/Yeachan-Heo/oh-my-codex/pull/1360))
-- boot native Windows team worker panes through an encoded PowerShell command with env + PATH bootstrap instead of POSIX `/bin/sh -lc` (PR [#1362](https://github.com/Yeachan-Heo/oh-my-codex/pull/1362))
-- canonicalize HUD workflow visibility through session-scoped skill-active state and suppress stale root-only mode badges across HUD, overlay, keyword activation, and MCP state (PR [#1367](https://github.com/Yeachan-Heo/oh-my-codex/pull/1367))
-- preserve team state until explicit shutdown by keeping monitor-driven runtime-cli exits on the report-only path (PR [#1369](https://github.com/Yeachan-Heo/oh-my-codex/pull/1369))
+- seed root `team-state.json` when `$team` is detected in `UserPromptSubmit` and route operators toward `omx team ...` / `omx team --help` (PR [#1364](https://github.com/Yeachan-Heo/oh-my-codex/pull/1364))
+- reject duplicate active same-name team launches before state mutation or worktree provisioning, preserving the existing team config and tasks (PR [#1364](https://github.com/Yeachan-Heo/oh-my-codex/pull/1364))
 
 ### Changed
-- bump release metadata from `0.12.1` to `0.12.2` across Node/Cargo manifests, changelog, and release collateral
+- bump release metadata from `0.12.2` to `0.12.3` across Node/Cargo manifests, changelog, and release collateral
 
 ## Verification
 
@@ -35,11 +29,10 @@
 ## Remaining risk
 
 - This verification is still local; it is not a full GitHub Actions matrix rerun.
-- The Windows-specific fixes (#1358, #1362) ship without a live native Windows 11 + psmux smoke run, so post-release monitoring should watch team-worker boot and split-pane shutdown telemetry on Windows.
-- The HUD canonicalization change (#1367) touches HUD, overlay, keyword-detector, MCP state, and skill-active paths at once; post-release monitoring should watch for any drift in single-skill readers or multi-workflow badge visibility.
+- PR #1364 touches live `$team` keyword handling and `startTeam` state seeding; post-release monitoring should watch for any regressions in prompt-driven team launch paths.
 
 ## Contributors
 
 - [@Yeachan-Heo](https://github.com/Yeachan-Heo) (Bellman)
 
-**Full Changelog**: [`v0.12.1...v0.12.2`](https://github.com/Yeachan-Heo/oh-my-codex/compare/v0.12.1...v0.12.2)
+**Full Changelog**: [`v0.12.2...v0.12.3`](https://github.com/Yeachan-Heo/oh-my-codex/compare/v0.12.2...v0.12.3)
