@@ -172,6 +172,41 @@ describe('notify-hook/operational-events – buildOperationalContext', () => {
       else process.env.TMUX = originalTmux;
     }
   });
+
+  it('writes PR lifecycle details into the repo baseline registry as best effort state', async () => {
+    const { buildOperationalContext } = await loadModule('notify-hook/operational-events.js');
+    const { mkdtemp, rm, writeFile, readFile } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { execFileSync } = await import('node:child_process');
+
+    const repo = await mkdtemp(join(tmpdir(), 'omx-opctx-baseline-'));
+    try {
+      execFileSync('git', ['init'], { cwd: repo, stdio: 'ignore' });
+      execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: repo, stdio: 'ignore' });
+      execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: repo, stdio: 'ignore' });
+      await writeFile(join(repo, 'README.md'), 'hello\n', 'utf-8');
+      execFileSync('git', ['add', 'README.md'], { cwd: repo, stdio: 'ignore' });
+      execFileSync('git', ['commit', '-m', 'init'], { cwd: repo, stdio: 'ignore' });
+      execFileSync('git', ['checkout', '-b', 'feature/opctx-pr'], { cwd: repo, stdio: 'ignore' });
+
+      const context = buildOperationalContext({
+        cwd: repo,
+        normalizedEvent: 'pr-merged',
+        text: 'Merged issue #1407 via PR #1416',
+        prUrl: 'https://github.com/Yeachan-Heo/oh-my-codex/pull/1416',
+      });
+
+      assert.equal(context.branch, 'feature/opctx-pr');
+      const baseline = JSON.parse(await readFile(join(repo, '.omx', 'state', 'current-task-baseline.json'), 'utf-8'));
+      const entry = baseline.tasks.find((item: { branch_name: string }) => item.branch_name === 'feature/opctx-pr');
+      assert.equal(entry.issue_number, 1407);
+      assert.equal(entry.pr_number, 1416);
+      assert.equal(entry.status, 'merged');
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('notify-hook/operational-events – deriveAssistantSignalEvents', () => {

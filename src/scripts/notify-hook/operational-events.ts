@@ -1,6 +1,7 @@
 import { execFileSync } from 'child_process';
 import { basename, dirname } from 'path';
 import { safeString } from './utils.js';
+import { upsertCurrentTaskBaseline } from '../../team/current-task-baseline.js';
 
 const TEST_SEGMENT_PATTERNS = [
   /^npm\s+(?:run\s+)?test\b/i,
@@ -215,6 +216,26 @@ export function buildOperationalContext({
     ...(prUrl !== undefined ? { pr_url: prUrl } : {}),
   };
   const resolvedSessionName = resolveOperationalSessionName(cwd, sessionId, sessionName);
+
+  if (repoMeta.repo_path && repoMeta.branch) {
+    try {
+      const lifecycleStatus = normalizedEvent === 'pr-merged'
+        ? 'merged'
+        : normalizedEvent === 'pr-closed'
+          ? 'closed'
+          : undefined;
+      upsertCurrentTaskBaseline(repoMeta.repo_path, {
+        branch_name: repoMeta.branch,
+        worktree_path: repoMeta.worktree_path,
+        issue_number: detectedIssue,
+        pr_number: detectedPrInfo.pr_number,
+        pr_url: detectedPrInfo.pr_url,
+        ...(lifecycleStatus ? { status: lifecycleStatus } : {}),
+      });
+    } catch {
+      // best effort only; operational context building must stay non-fatal
+    }
+  }
 
   return {
     normalized_event: normalizedEvent,
