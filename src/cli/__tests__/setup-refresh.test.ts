@@ -434,6 +434,22 @@ describe("omx setup refresh summary and dry-run behavior", () => {
         args: ["@eslint/mcp@latest"],
         enabled: false,
       });
+
+      const cursorSettings = JSON.parse(
+        await readFile(join(wd, ".cursor", "mcp.json"), "utf-8"),
+      ) as {
+        mcpServers?: Record<string, { command: string; args: string[]; enabled: boolean }>;
+      };
+      assert.deepEqual(cursorSettings.mcpServers?.existing_server, {
+        command: "existing-server",
+        args: ["mcp"],
+        enabled: true,
+      });
+      assert.deepEqual(cursorSettings.mcpServers?.eslint, {
+        command: "npx",
+        args: ["@eslint/mcp@latest"],
+        enabled: false,
+      });
     } finally {
       if (typeof previousHome === "string") process.env.HOME = previousHome;
       else delete process.env.HOME;
@@ -466,11 +482,51 @@ describe("omx setup refresh summary and dry-run behavior", () => {
       });
 
       assert.equal(existsSync(join(wd, ".claude", "settings.json")), false);
+      assert.equal(existsSync(join(wd, ".cursor", "mcp.json")), false);
     } finally {
       if (typeof previousHome === "string") process.env.HOME = previousHome;
       else delete process.env.HOME;
       if (typeof previousCodexHome === "string") process.env.CODEX_HOME = previousCodexHome;
       else delete process.env.CODEX_HOME;
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
+
+  it("skips ~/.cursor/mcp.json when OMX_CURSOR_MCP_SYNC_DISABLE=1", async () => {
+    const wd = await mkdtemp(join(tmpdir(), "omx-setup-refresh-"));
+    const previousHome = process.env.HOME;
+    const previousCodexHome = process.env.CODEX_HOME;
+    const previousCursorDisable = process.env.OMX_CURSOR_MCP_SYNC_DISABLE;
+    try {
+      process.env.HOME = wd;
+      delete process.env.CODEX_HOME;
+      process.env.OMX_CURSOR_MCP_SYNC_DISABLE = "1";
+
+      await mkdir(join(wd, ".omx", "state"), { recursive: true });
+      const registryPath = join(wd, "mcp-registry.json");
+      await writeFile(
+        registryPath,
+        JSON.stringify({
+          eslint: { command: "npx", args: ["@eslint/mcp@latest"] },
+        }),
+      );
+
+      await runSetupInTempDir(wd, {
+        scope: "user",
+        mcpRegistryCandidates: [registryPath],
+      });
+
+      assert.equal(existsSync(join(wd, ".cursor", "mcp.json")), false);
+    } finally {
+      if (typeof previousHome === "string") process.env.HOME = previousHome;
+      else delete process.env.HOME;
+      if (typeof previousCodexHome === "string") process.env.CODEX_HOME = previousCodexHome;
+      else delete process.env.CODEX_HOME;
+      if (typeof previousCursorDisable === "string") {
+        process.env.OMX_CURSOR_MCP_SYNC_DISABLE = previousCursorDisable;
+      } else {
+        delete process.env.OMX_CURSOR_MCP_SYNC_DISABLE;
+      }
       await rm(wd, { recursive: true, force: true });
     }
   });

@@ -1,6 +1,6 @@
 /**
  * Path utilities for oh-my-codex
- * Resolves Codex CLI config, skills, prompts, and state directories
+ * Resolves Cursor CLI config, skills, prompts, and state directories
  */
 
 import { createHash } from "crypto";
@@ -10,10 +10,13 @@ import { dirname, isAbsolute, join, resolve } from "path";
 import { homedir } from "os";
 import { fileURLToPath } from "url";
 
-/** Codex CLI home directory (~/.codex/) */
-export function codexHome(): string {
-  return process.env.CODEX_HOME || join(homedir(), ".codex");
+/** Cursor CLI home directory (~/.cursor/) */
+export function cursorHome(): string {
+  return process.env.CURSOR_HOME || join(homedir(), ".cursor");
 }
+
+/** @deprecated Use cursorHome() */
+export const codexHome = cursorHome;
 
 export const OMX_ENTRY_PATH_ENV = "OMX_ENTRY_PATH";
 export const OMX_STARTUP_CWD_ENV = "OMX_STARTUP_CWD";
@@ -71,34 +74,50 @@ export function rememberOmxLaunchContext(
   }
 }
 
-/** Codex config file path (~/.codex/config.toml) */
+/** Cursor MCP settings path (~/.cursor/mcp.json) */
+export function cursorMcpConfigPath(): string {
+  return join(cursorHome(), "mcp.json");
+}
+
+/** @deprecated Cursor has no single config.toml; use cursorMcpConfigPath() */
 export function codexConfigPath(): string {
-  return join(codexHome(), "config.toml");
+  return cursorMcpConfigPath();
 }
 
-/** Codex prompts directory (~/.codex/prompts/) */
+/** Cursor rules directory (~/.cursor/rules/) */
+export function cursorRulesDir(): string {
+  return join(cursorHome(), "rules");
+}
+
+/** @deprecated Use cursorRulesDir() */
 export function codexPromptsDir(): string {
-  return join(codexHome(), "prompts");
+  return cursorRulesDir();
 }
 
-/** Codex native agents directory (~/.codex/agents/) */
-export function codexAgentsDir(codexHomeDir?: string): string {
-  return join(codexHomeDir || codexHome(), "agents");
+/** Cursor agents directory (~/.cursor/agents/) */
+export function cursorAgentsDir(cursorHomeDir?: string): string {
+  return join(cursorHomeDir || cursorHome(), "agents");
 }
 
-/** Project-level Codex native agents directory (.codex/agents/) */
-export function projectCodexAgentsDir(projectRoot?: string): string {
-  return join(projectRoot || process.cwd(), ".codex", "agents");
+/** @deprecated Use cursorAgentsDir() */
+export const codexAgentsDir = cursorAgentsDir;
+
+/** Project-level Cursor agents directory (.cursor/agents/) */
+export function projectCursorAgentsDir(projectRoot?: string): string {
+  return join(projectRoot || process.cwd(), ".cursor", "agents");
 }
 
-/** User-level skills directory ($CODEX_HOME/skills, defaults to ~/.codex/skills/) */
+/** @deprecated Use projectCursorAgentsDir() */
+export const projectCodexAgentsDir = projectCursorAgentsDir;
+
+/** User-level skills directory ($CURSOR_HOME/skills, defaults to ~/.cursor/skills/) */
 export function userSkillsDir(): string {
-  return join(codexHome(), "skills");
+  return join(cursorHome(), "skills");
 }
 
-/** Project-level skills directory (.codex/skills/) */
+/** Project-level skills directory (.cursor/skills/) */
 export function projectSkillsDir(projectRoot?: string): string {
-  return join(projectRoot || process.cwd(), ".codex", "skills");
+  return join(projectRoot || process.cwd(), ".cursor", "skills");
 }
 
 /** Historical legacy user-level skills directory (~/.agents/skills/) */

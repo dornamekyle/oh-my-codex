@@ -1,6 +1,6 @@
 /**
  * oh-my-codex CLI
- * Multi-agent orchestration for OpenAI Codex CLI
+ * Multi-agent orchestration for Cursor CLI
  */
 
 import { execFileSync, spawn } from "child_process";
@@ -32,6 +32,10 @@ import { autoresearchCommand } from "./autoresearch.js";
 import {
   MADMAX_FLAG,
   CODEX_BYPASS_FLAG,
+  CURSOR_AGENT_BINARY,
+  CURSOR_APPROVE_MCPS_FLAG,
+  CURSOR_FORCE_FLAG,
+  CURSOR_PROMPT_FLAG,
   HIGH_REASONING_FLAG,
   XHIGH_REASONING_FLAG,
   SPARK_FLAG,
@@ -75,7 +79,7 @@ import {
   isTmuxAvailable,
 } from "../team/tmux-session.js";
 import { getPackageRoot } from "../utils/package.js";
-import { codexConfigPath, rememberOmxLaunchContext, resolveOmxEntryPath } from "../utils/paths.js";
+import { cursorMcpConfigPath, rememberOmxLaunchContext, resolveOmxEntryPath } from "../utils/paths.js";
 import { repairConfigIfNeeded } from "../config/generator.js";
 import { HUD_TMUX_HEIGHT_LINES } from "../hud/constants.js";
 
@@ -121,27 +125,27 @@ function resolveDistScript(pkgRoot: string, scriptName: string): string {
 }
 
 const HELP = `
-oh-my-codex (omx) - Multi-agent orchestration for Codex CLI
+oh-my-codex (omx) - Multi-agent orchestration for Cursor CLI
 
 Usage:
-  omx           Launch Codex CLI (HUD auto-attaches only when already inside tmux)
-  omx exec      Run codex exec non-interactively with OMX AGENTS/overlay injection
+  omx           Launch Cursor CLI (HUD auto-attaches only when already inside tmux)
+  omx exec      Run cursor-agent exec non-interactively with OMX AGENTS/overlay injection
   omx setup     Install skills, prompts, MCP servers, and scope-specific AGENTS.md
   omx uninstall Remove OMX configuration and clean up installed artifacts
   omx doctor    Check installation health
   omx cleanup   Kill orphaned OMX MCP server processes and remove stale OMX /tmp directories
   omx doctor --team  Check team/swarm runtime health diagnostics
   omx ask       Ask local provider CLI (claude|gemini) and write artifact output
-  omx resume    Resume a previous interactive Codex session
+  omx resume    Resume a previous interactive Cursor session
   omx explore   Default read-only exploration entrypoint (may adaptively use sparkshell backend)
   omx session   Search prior local session transcripts and history artifacts
   omx agents-init [path]
                 Bootstrap lightweight AGENTS.md files for a repo/subtree
-  omx agents    Manage Codex native agent TOML files
+  omx agents    Manage Cursor native agent TOML files
   omx deepinit [path]
                 Alias for agents-init (lightweight AGENTS bootstrap only)
   omx team      Spawn parallel worker panes in tmux and bootstrap inbox/task state
-  omx ralph     Launch Codex with ralph persistence mode active
+  omx ralph     Launch Cursor CLI with ralph persistence mode active
   omx autoresearch Launch thin-supervisor autoresearch with keep/discard/reset parity
   omx version   Show version information
   omx tmux-hook Manage tmux prompt injection workaround (init|status|validate|test)
@@ -157,14 +161,14 @@ Usage:
   omx reasoning Show or set model reasoning effort (low|medium|high|xhigh)
 
 Options:
-  --yolo        Launch Codex in yolo mode (shorthand for: omx launch --yolo)
-  --high        Launch Codex with high reasoning effort
+  --yolo        Launch Cursor CLI in yolo mode (shorthand for: omx launch --yolo)
+  --high        Launch Cursor CLI with high reasoning effort
                 (shorthand for: -c model_reasoning_effort="high")
-  --xhigh       Launch Codex with xhigh reasoning effort
+  --xhigh       Launch Cursor CLI with xhigh reasoning effort
                 (shorthand for: -c model_reasoning_effort="xhigh")
-  --madmax      DANGEROUS: bypass Codex approvals and sandbox
-                (alias for --dangerously-bypass-approvals-and-sandbox)
-  --spark       Use the Codex spark model (~1.3x faster) for team workers only
+  --madmax      DANGEROUS: bypass cursor-agent approvals and sandbox
+                (alias for --approve-mcps --force)
+  --spark       Use the cursor-agent spark model (~1.3x faster) for team workers only
                 Workers get the configured low-complexity team model; leader model unchanged
   --madmax-spark  spark model for workers + bypass approvals for leader and workers
                 (shorthand for: --spark --madmax)
@@ -176,7 +180,7 @@ Options:
   --custom <name>
                 Select custom/OpenClaw gateway name for temporary notification mode
   -w, --worktree[=<name>]
-                Launch Codex in a git worktree (detached when no name is given)
+                Launch cursor-agent in a git worktree (detached when no name is given)
   --force       Force reinstall (overwrite existing files)
   --dry-run     Show what would be done without doing it
   --keep-config Skip config.toml cleanup during uninstall
@@ -186,7 +190,7 @@ Options:
                 user | project
   --skill-target
                 User-scope skills target for "omx setup" only:
-                codex-home
+                cursor-home
 `;
 
 const REASONING_KEY = "model_reasoning_effort";
@@ -219,7 +223,7 @@ const ALLOWED_SHELLS = new Set([
   "/usr/local/bin/fish",
 ]);
 const WINDOWS_DETACHED_BOOTSTRAP_DELAY_MS = 2500;
-const CODEX_VERSION_FLAGS = new Set(["--version", "-V"]);
+const CURSOR_VERSION_FLAGS = new Set(["--version", "-V"]);
 const TMUX_EXTENDED_KEYS_MODE = "always";
 const TMUX_EXTENDED_KEYS_FALLBACK_MODE = "off";
 const TMUX_EXTENDED_KEYS_LEASE_DIR = "tmux-extended-keys";
@@ -313,17 +317,20 @@ export function readPersistedSetupPreferences(
   return undefined;
 }
 
-export function resolveCodexHomeForLaunch(
+export function resolveCursorHomeForLaunch(
   cwd: string,
   env: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
-  if (env.CODEX_HOME && env.CODEX_HOME.trim() !== "") return env.CODEX_HOME;
+  if (env.CURSOR_HOME && env.CURSOR_HOME.trim() !== "") return env.CURSOR_HOME;
   const persistedScope = readPersistedSetupScope(cwd);
   if (persistedScope === "project") {
-    return join(cwd, ".codex");
+    return join(cwd, ".cursor");
   }
   return undefined;
 }
+
+/** @deprecated Use resolveCursorHomeForLaunch() */
+export const resolveCodexHomeForLaunch = resolveCursorHomeForLaunch;
 
 export function resolveSetupScopeArg(args: string[]): SetupScope | undefined {
   let value: string | undefined;
@@ -387,14 +394,17 @@ export function commandOwnsLocalHelp(command: CliCommand): boolean {
   return NESTED_HELP_COMMANDS.has(command);
 }
 
-export type CodexLaunchPolicy = "inside-tmux" | "detached-tmux" | "direct";
+export type CursorLaunchPolicy = "inside-tmux" | "detached-tmux" | "direct";
+
+/** @deprecated Use CursorLaunchPolicy */
+export type CodexLaunchPolicy = CursorLaunchPolicy;
 
 function splitLeaderLaunchPolicyArgs(args: string[]): {
-  explicitPolicy?: CodexLaunchPolicy;
+  explicitPolicy?: CursorLaunchPolicy;
   remainingArgs: string[];
 } {
   const remainingArgs: string[] = [];
-  let explicitPolicy: CodexLaunchPolicy | undefined;
+  let explicitPolicy: CursorLaunchPolicy | undefined;
   let passthroughOnly = false;
 
   for (const arg of args) {
@@ -422,19 +432,19 @@ function splitLeaderLaunchPolicyArgs(args: string[]): {
 
 export function resolveLeaderLaunchPolicyOverride(
   args: string[],
-): CodexLaunchPolicy | undefined {
+): CursorLaunchPolicy | undefined {
   return splitLeaderLaunchPolicyArgs(args).explicitPolicy;
 }
 
-export function resolveCodexLaunchPolicy(
+export function resolveCursorLaunchPolicy(
   env: NodeJS.ProcessEnv = process.env,
   _platform: NodeJS.Platform = process.platform,
   tmuxAvailable: boolean = isTmuxAvailable(),
   nativeWindows: boolean = isNativeWindows(),
   stdinIsTTY: boolean = Boolean(process.stdin.isTTY),
   stdoutIsTTY: boolean = Boolean(process.stdout.isTTY),
-  explicitPolicy?: CodexLaunchPolicy,
-): CodexLaunchPolicy {
+  explicitPolicy?: CursorLaunchPolicy,
+): CursorLaunchPolicy {
   if (env.TMUX) return "inside-tmux";
   if (explicitPolicy === "detached-tmux") return tmuxAvailable ? "detached-tmux" : "direct";
   if (explicitPolicy === "direct") return "direct";
@@ -443,6 +453,9 @@ export function resolveCodexLaunchPolicy(
   if (!stdinIsTTY || !stdoutIsTTY) return "direct";
   return tmuxAvailable ? "detached-tmux" : "direct";
 }
+
+/** @deprecated Use resolveCursorLaunchPolicy() */
+export const resolveCodexLaunchPolicy = resolveCursorLaunchPolicy;
 
 type ExecFileSyncFailure = NodeJS.ErrnoException & {
   status?: number | null;
@@ -458,13 +471,16 @@ function hasErrnoCode(error: unknown, code: string): boolean {
   );
 }
 
-export interface CodexExecFailureClassification {
+export interface CursorExecFailureClassification {
   kind: "exit" | "launch-error";
   code?: string;
   message: string;
   exitCode?: number;
   signal?: NodeJS.Signals;
 }
+
+/** @deprecated Use CursorExecFailureClassification */
+export type CodexExecFailureClassification = CursorExecFailureClassification;
 
 export function resolveSignalExitCode(
   signal: NodeJS.Signals | null | undefined,
@@ -477,9 +493,9 @@ export function resolveSignalExitCode(
   return 1;
 }
 
-export function classifyCodexExecFailure(
+export function classifyCursorExecFailure(
   error: unknown,
-): CodexExecFailureClassification {
+): CursorExecFailureClassification {
   if (!error || typeof error !== "object") {
     return {
       kind: "launch-error",
@@ -492,7 +508,7 @@ export function classifyCodexExecFailure(
   const message =
     typeof err.message === "string" && err.message.length > 0
       ? err.message
-      : "unknown codex launch failure";
+      : "unknown cursor-agent launch failure";
   const hasExitStatus = typeof err.status === "number";
   const hasSignal = typeof err.signal === "string" && err.signal.length > 0;
 
@@ -515,15 +531,18 @@ export function classifyCodexExecFailure(
   };
 }
 
-function runCodexBlocking(
+/** @deprecated Use classifyCursorExecFailure() */
+export const classifyCodexExecFailure = classifyCursorExecFailure;
+
+function runCursorBlocking(
   cwd: string,
   launchArgs: string[],
-  codexEnv: NodeJS.ProcessEnv,
+  cursorEnv: NodeJS.ProcessEnv,
 ): void {
-  const { result } = spawnPlatformCommandSync("codex", launchArgs, {
+  const { result } = spawnPlatformCommandSync(CURSOR_AGENT_BINARY, launchArgs, {
     cwd,
     stdio: "inherit",
-    env: codexEnv,
+    env: cursorEnv,
     encoding: "utf-8",
   });
 
@@ -532,14 +551,14 @@ function runCodexBlocking(
     const kind = classifySpawnError(errno);
     if (kind === "missing") {
       console.error(
-        "[omx] failed to launch codex: executable not found in PATH",
+        "[omx] failed to launch cursor-agent: executable not found in PATH",
       );
     } else if (kind === "blocked") {
       console.error(
-        `[omx] failed to launch codex: executable is present but blocked in the current environment (${errno.code || "blocked"})`,
+        `[omx] failed to launch cursor-agent: executable is present but blocked in the current environment (${errno.code || "blocked"})`,
       );
     } else {
-      console.error(`[omx] failed to launch codex: ${errno.message}`);
+      console.error(`[omx] failed to launch cursor-agent: ${errno.message}`);
     }
     throw result.error;
   }
@@ -550,10 +569,13 @@ function runCodexBlocking(
         ? result.status
         : resolveSignalExitCode(result.signal);
     if (result.signal) {
-      console.error(`[omx] codex exited due to signal ${result.signal}`);
+      console.error(`[omx] cursor-agent exited due to signal ${result.signal}`);
     }
   }
 }
+
+/** @deprecated Use runCursorBlocking() */
+const runCodexBlocking = runCursorBlocking;
 
 interface TmuxPaneSnapshot {
   paneId: string;
@@ -808,7 +830,7 @@ async function showStatus(): Promise<void> {
 
 async function reasoningCommand(args: string[]): Promise<void> {
   const mode = args[0];
-  const configPath = codexConfigPath();
+  const configPath = cursorMcpConfigPath();
 
   if (!mode) {
     if (!existsSync(configPath)) {
@@ -887,8 +909,8 @@ export async function launchWithHud(args: string[]): Promise<void> {
   const explicitLaunchPolicy = resolveLeaderLaunchPolicyOverride(
     notifyTempResult.passthroughArgs,
   );
-  const codexHomeOverride = resolveCodexHomeForLaunch(launchCwd, process.env);
-  const launchPolicy = resolveCodexLaunchPolicy(
+  const cursorHomeOverride = resolveCursorHomeForLaunch(launchCwd, process.env);
+  const launchPolicy = resolveCursorLaunchPolicy(
     process.env,
     process.platform,
     undefined,
@@ -900,9 +922,9 @@ export async function launchWithHud(args: string[]): Promise<void> {
   const enableNotifyFallbackAuthority = launchPolicy === "direct";
   const workerSparkModel = resolveWorkerSparkModel(
     notifyTempResult.passthroughArgs,
-    codexHomeOverride,
+    cursorHomeOverride,
   );
-  const normalizedArgs = normalizeCodexLaunchArgs(
+  const normalizedArgs = normalizeCursorLaunchArgs(
     notifyTempResult.passthroughArgs,
   );
   let cwd = launchCwd;
@@ -935,11 +957,11 @@ export async function launchWithHud(args: string[]): Promise<void> {
 
   // ── Phase 0.5: config repair ────────────────────────────────────────────
   // After an omx version upgrade the OLD setup code (still in memory) may
-  // have written a config.toml with duplicate [tui] sections.  Codex CLI's
-  // TOML parser rejects duplicates, so we repair before spawning the CLI.
+  // have written a config with duplicate sections. Cursor CLI's parser
+  // rejects duplicates, so we repair before spawning the CLI.
   try {
     const repaired = await repairConfigIfNeeded(
-      codexConfigPath(),
+      cursorMcpConfigPath(),
       getPackageRoot(),
     );
     if (repaired) {
@@ -951,9 +973,9 @@ export async function launchWithHud(args: string[]): Promise<void> {
 
   // ── Phase 1: preLaunch ──────────────────────────────────────────────────
   try {
-    await preLaunch(cwd, sessionId, notifyTempResult.contract, codexHomeOverride, enableNotifyFallbackAuthority);
+    await preLaunch(cwd, sessionId, notifyTempResult.contract, cursorHomeOverride, enableNotifyFallbackAuthority);
   } catch (err) {
-    // preLaunch errors must NOT prevent Codex from starting
+    // preLaunch errors must NOT prevent cursor-agent from starting
     console.error(
       `[omx] preLaunch warning: ${err instanceof Error ? err.message : err}`,
     );
@@ -964,18 +986,18 @@ export async function launchWithHud(args: string[]): Promise<void> {
     const notifyTempContractRaw = notifyTempResult.contract.active
       ? serializeNotifyTempContract(notifyTempResult.contract)
       : null;
-    runCodex(
+    runCursorAgent(
       cwd,
       normalizedArgs,
       sessionId,
       workerSparkModel,
-      codexHomeOverride,
+      cursorHomeOverride,
       notifyTempContractRaw,
       explicitLaunchPolicy,
     );
   } finally {
     // ── Phase 3: postLaunch ─────────────────────────────────────────────
-    await postLaunch(cwd, sessionId, codexHomeOverride, enableNotifyFallbackAuthority);
+    await postLaunch(cwd, sessionId, cursorHomeOverride, enableNotifyFallbackAuthority);
   }
 }
 
@@ -986,8 +1008,8 @@ export async function execWithOverlay(args: string[]): Promise<void> {
     parsedWorktree.remainingArgs,
     process.env,
   );
-  const codexHomeOverride = resolveCodexHomeForLaunch(launchCwd, process.env);
-  const normalizedArgs = normalizeCodexLaunchArgs(
+  const cursorHomeOverride = resolveCursorHomeForLaunch(launchCwd, process.env);
+  const normalizedArgs = normalizeCursorLaunchArgs(
     notifyTempResult.passthroughArgs,
   );
   let cwd = launchCwd;
@@ -1020,18 +1042,18 @@ export async function execWithOverlay(args: string[]): Promise<void> {
 
   try {
     const repaired = await repairConfigIfNeeded(
-      codexConfigPath(),
+      cursorMcpConfigPath(),
       getPackageRoot(),
     );
     if (repaired) {
-      console.log("[omx] Repaired managed config.toml compatibility issue.");
+      console.log("[omx] Repaired managed config compatibility issue.");
     }
   } catch {
     // Non-fatal
   }
 
   try {
-    await preLaunch(cwd, sessionId, notifyTempResult.contract, codexHomeOverride, true);
+    await preLaunch(cwd, sessionId, notifyTempResult.contract, cursorHomeOverride, true);
   } catch (err) {
     console.error(
       `[omx] preLaunch warning: ${err instanceof Error ? err.message : err}`,
@@ -1042,33 +1064,34 @@ export async function execWithOverlay(args: string[]): Promise<void> {
     const notifyTempContractRaw = notifyTempResult.contract.active
       ? serializeNotifyTempContract(notifyTempResult.contract)
       : null;
-    const codexArgs = injectModelInstructionsBypassArgs(
+    const cursorArgs = injectModelInstructionsBypassArgs(
       cwd,
       ["exec", ...normalizedArgs],
       process.env,
       sessionModelInstructionsPath(cwd, sessionId),
     );
-    const codexEnvBase = codexHomeOverride
-      ? { ...process.env, CODEX_HOME: codexHomeOverride }
+    const cursorEnvBase = cursorHomeOverride
+      ? { ...process.env, CURSOR_HOME: cursorHomeOverride }
       : process.env;
-    const codexEnv = notifyTempContractRaw
+    const cursorEnv = notifyTempContractRaw
       ? {
-          ...codexEnvBase,
+          ...cursorEnvBase,
           [OMX_NOTIFY_TEMP_CONTRACT_ENV]: notifyTempContractRaw,
         }
-      : codexEnvBase;
-    runCodexBlocking(cwd, codexArgs, codexEnv);
+      : cursorEnvBase;
+    runCursorBlocking(cwd, cursorArgs, cursorEnv);
   } finally {
-    await postLaunch(cwd, sessionId, codexHomeOverride, true);
+    await postLaunch(cwd, sessionId, cursorHomeOverride, true);
   }
 }
 
-export function normalizeCodexLaunchArgs(args: string[]): string[] {
+export function normalizeCursorLaunchArgs(args: string[]): string[] {
   const parsed = parseWorktreeMode(args);
   const launchPolicyParsed = splitLeaderLaunchPolicyArgs(parsed.remainingArgs);
   const normalized: string[] = [];
   let wantsBypass = false;
-  let hasBypass = false;
+  let hasApproveMcps = false;
+  let hasForce = false;
   let reasoningMode: ReasoningMode | null = null;
 
   for (const arg of launchPolicyParsed.remainingArgs) {
@@ -1077,11 +1100,15 @@ export function normalizeCodexLaunchArgs(args: string[]): string[] {
       continue;
     }
 
-    if (arg === CODEX_BYPASS_FLAG) {
+    if (arg === CODEX_BYPASS_FLAG || arg === CURSOR_APPROVE_MCPS_FLAG || arg === CURSOR_FORCE_FLAG) {
       wantsBypass = true;
-      if (!hasBypass) {
-        normalized.push(arg);
-        hasBypass = true;
+      if (arg === CURSOR_APPROVE_MCPS_FLAG && !hasApproveMcps) {
+        normalized.push(CURSOR_APPROVE_MCPS_FLAG);
+        hasApproveMcps = true;
+      }
+      if (arg === CURSOR_FORCE_FLAG && !hasForce) {
+        normalized.push(CURSOR_FORCE_FLAG);
+        hasForce = true;
       }
       continue;
     }
@@ -1097,12 +1124,10 @@ export function normalizeCodexLaunchArgs(args: string[]): string[] {
     }
 
     if (arg === SPARK_FLAG) {
-      // Spark model is injected into worker env only (not the leader). Consume flag.
       continue;
     }
 
     if (arg === MADMAX_SPARK_FLAG) {
-      // Bypass applies to leader; spark model goes to workers only. Consume flag.
       wantsBypass = true;
       continue;
     }
@@ -1110,8 +1135,9 @@ export function normalizeCodexLaunchArgs(args: string[]): string[] {
     normalized.push(arg);
   }
 
-  if (wantsBypass && !hasBypass) {
-    normalized.push(CODEX_BYPASS_FLAG);
+  if (wantsBypass) {
+    if (!hasApproveMcps) normalized.push(CURSOR_APPROVE_MCPS_FLAG);
+    if (!hasForce) normalized.push(CURSOR_FORCE_FLAG);
   }
 
   if (reasoningMode) {
@@ -1121,6 +1147,9 @@ export function normalizeCodexLaunchArgs(args: string[]): string[] {
   return normalized;
 }
 
+/** @deprecated Use normalizeCursorLaunchArgs() */
+export const normalizeCodexLaunchArgs = normalizeCursorLaunchArgs;
+
 /**
  * Returns the spark model string if --spark or --madmax-spark appears in the
  * raw (pre-normalize) args, or undefined if neither flag is present.
@@ -1128,11 +1157,11 @@ export function normalizeCodexLaunchArgs(args: string[]): string[] {
  */
 export function resolveWorkerSparkModel(
   args: string[],
-  codexHomeOverride?: string,
+  cursorHomeOverride?: string,
 ): string | undefined {
   for (const arg of args) {
     if (arg === SPARK_FLAG || arg === MADMAX_SPARK_FLAG) {
-      return resolveTeamLowComplexityDefaultModel(codexHomeOverride);
+      return resolveTeamLowComplexityDefaultModel(cursorHomeOverride);
     }
   }
   return undefined;
@@ -1262,19 +1291,19 @@ export function injectModelInstructionsBypassArgs(
 }
 
 export function collectInheritableTeamWorkerArgs(
-  codexArgs: string[],
+  cursorArgs: string[],
 ): string[] {
-  return collectInheritableTeamWorkerArgsShared(codexArgs);
+  return collectInheritableTeamWorkerArgsShared(cursorArgs);
 }
 
 export function resolveTeamWorkerLaunchArgsEnv(
   existingRaw: string | undefined,
-  codexArgs: string[],
+  cursorArgs: string[],
   inheritLeaderFlags = true,
   defaultModel?: string,
 ): string | null {
   const inheritedArgs = inheritLeaderFlags
-    ? collectInheritableTeamWorkerArgs(codexArgs)
+    ? collectInheritableTeamWorkerArgs(cursorArgs)
     : [];
   const normalized = resolveTeamWorkerLaunchArgs({
     existingRaw,
@@ -1545,7 +1574,7 @@ function withTmuxExtendedKeysLeaseLock<T>(
 function buildDetachedSessionLeaderCommand(
   cwd: string,
   sessionName: string,
-  codexCmd: string,
+  cursorCmd: string,
 ): string {
   const wrapped = [
     buildTmuxExtendedKeysAcquireShellSnippet(cwd),
@@ -1557,7 +1586,7 @@ function buildDetachedSessionLeaderCommand(
     "exit $status;",
     "};",
     "trap omx_detached_session_cleanup 0 INT TERM HUP;",
-    codexCmd,
+    cursorCmd,
   ].join(" ");
   return `/bin/sh -lc ${quoteShellArg(wrapped)}`;
 }
@@ -1694,17 +1723,17 @@ export function withTmuxExtendedKeys<T>(
 export function buildDetachedSessionBootstrapSteps(
   sessionName: string,
   cwd: string,
-  codexCmd: string,
+  cursorCmd: string,
   hudCmd: string,
   workerLaunchArgs: string | null,
-  codexHomeOverride?: string,
+  cursorHomeOverride?: string,
   notifyTempContractRaw?: string | null,
   nativeWindows = false,
   sessionId?: string,
 ): DetachedSessionTmuxStep[] {
   const detachedLeaderCmd = nativeWindows
     ? "powershell.exe"
-    : buildDetachedSessionLeaderCommand(cwd, sessionName, codexCmd);
+    : buildDetachedSessionLeaderCommand(cwd, sessionName, cursorCmd);
   const newSessionArgs: string[] = [
     "new-session",
     "-d",
@@ -1719,7 +1748,7 @@ export function buildDetachedSessionBootstrapSteps(
       ? ["-e", `${TEAM_WORKER_LAUNCH_ARGS_ENV}=${workerLaunchArgs}`]
       : []),
     ...(sessionId ? ["-e", `OMX_SESSION_ID=${sessionId}`] : []),
-    ...(codexHomeOverride ? ["-e", `CODEX_HOME=${codexHomeOverride}`] : []),
+    ...(cursorHomeOverride ? ["-e", `CURSOR_HOME=${cursorHomeOverride}`] : []),
     ...(notifyTempContractRaw
       ? ["-e", `${OMX_NOTIFY_TEMP_CONTRACT_ENV}=${notifyTempContractRaw}`]
       : []),
@@ -1881,7 +1910,7 @@ export function buildNotifyTempStartupMessages(
 export function buildNotifyFallbackWatcherEnv(
   env: NodeJS.ProcessEnv = process.env,
   options: {
-    codexHomeOverride?: string;
+    cursorHomeOverride?: string;
     enableAuthority?: boolean;
     sessionId?: string;
   } = {},
@@ -1891,7 +1920,7 @@ export function buildNotifyFallbackWatcherEnv(
   delete nextEnv.TMUX_PANE;
   return {
     ...nextEnv,
-    ...(options.codexHomeOverride ? { CODEX_HOME: options.codexHomeOverride } : {}),
+    ...(options.cursorHomeOverride ? { CURSOR_HOME: options.cursorHomeOverride } : {}),
     ...(options.sessionId ? { OMX_SESSION_ID: options.sessionId } : {}),
     OMX_HUD_AUTHORITY: options.enableAuthority ? "1" : "0",
   };
@@ -2108,20 +2137,20 @@ export async function reapPostLaunchOrphanedMcpProcesses(
 }
 
 /**
- * preLaunch: Prepare environment before Codex starts.
+ * preLaunch: Prepare environment before cursor-agent starts.
  * 1. Best-effort launch-safe orphan cleanup for detached OMX MCP processes
  * 2. Generate runtime overlay + write session-scoped model instructions file
  * 3. Write session.json
  *
  * Automatic broad stale-session cleanup remains disabled here. Only detached
- * OMX MCP processes without a live Codex ancestor are reaped so new launches
- * do not accumulate stale processes from prior crashed/closed sessions.
+ * OMX MCP processes without a live cursor-agent ancestor are reaped so new
+ * launches do not accumulate stale processes from prior crashed/closed sessions.
  */
 async function preLaunch(
   cwd: string,
   sessionId: string,
   notifyTempContract?: NotifyTempContract,
-  codexHomeOverride?: string,
+  cursorHomeOverride?: string,
   enableNotifyFallbackAuthority: boolean = false,
 ): Promise<void> {
   // 1. Best-effort launch-safe orphan cleanup
@@ -2163,7 +2192,7 @@ ${launchAppendix}`
 
   // 4. Start notify fallback watcher (best effort)
   try {
-    await startNotifyFallbackWatcher(cwd, { codexHomeOverride, enableAuthority: enableNotifyFallbackAuthority, sessionId });
+    await startNotifyFallbackWatcher(cwd, { cursorHomeOverride, enableAuthority: enableNotifyFallbackAuthority, sessionId });
   } catch (err) {
     process.stderr.write(`[cli/index] operation failed: ${err}\n`);
     // Non-fatal
@@ -2226,17 +2255,17 @@ ${launchAppendix}`
 }
 
 /**
- * runCodex: Launch Codex CLI (blocks until exit).
+ * runCursorAgent: Launch Cursor CLI (blocks until exit).
  * All 3 paths (new tmux, existing tmux, no tmux) block via execSync/execFileSync.
  */
-function runCodex(
+function runCursorAgent(
   cwd: string,
   args: string[],
   sessionId: string,
   workerDefaultModel?: string,
-  codexHomeOverride?: string,
+  cursorHomeOverride?: string,
   notifyTempContractRaw?: string | null,
-  explicitLaunchPolicy?: CodexLaunchPolicy,
+  explicitLaunchPolicy?: CursorLaunchPolicy,
 ): void {
   const launchArgs = injectModelInstructionsBypassArgs(
     cwd,
@@ -2259,18 +2288,18 @@ function runCodex(
     inheritLeaderFlags,
     workerDefaultModel,
   );
-  const codexBaseEnv = codexHomeOverride
-    ? { ...process.env, CODEX_HOME: codexHomeOverride }
+  const cursorBaseEnv = cursorHomeOverride
+    ? { ...process.env, CURSOR_HOME: cursorHomeOverride }
     : process.env;
-  const codexEnvWithSession = { ...codexBaseEnv, OMX_SESSION_ID: sessionId };
-  const codexEnv = workerLaunchArgs
-    ? { ...codexEnvWithSession, [TEAM_WORKER_LAUNCH_ARGS_ENV]: workerLaunchArgs }
-    : codexEnvWithSession;
-  const codexEnvWithNotify = notifyTempContractRaw
-    ? { ...codexEnv, [OMX_NOTIFY_TEMP_CONTRACT_ENV]: notifyTempContractRaw }
-    : codexEnv;
+  const cursorEnvWithSession = { ...cursorBaseEnv, OMX_SESSION_ID: sessionId };
+  const cursorEnv = workerLaunchArgs
+    ? { ...cursorEnvWithSession, [TEAM_WORKER_LAUNCH_ARGS_ENV]: workerLaunchArgs }
+    : cursorEnvWithSession;
+  const cursorEnvWithNotify = notifyTempContractRaw
+    ? { ...cursorEnv, [OMX_NOTIFY_TEMP_CONTRACT_ENV]: notifyTempContractRaw }
+    : cursorEnv;
 
-  const launchPolicy = resolveCodexLaunchPolicy(
+  const launchPolicy = resolveCursorLaunchPolicy(
     process.env,
     process.platform,
     undefined,
@@ -2280,13 +2309,13 @@ function runCodex(
     explicitLaunchPolicy,
   );
 
-  if (isCodexVersionRequest(launchArgs)) {
-    runCodexBlocking(cwd, launchArgs, codexEnvWithNotify);
+  if (isCursorVersionRequest(launchArgs)) {
+    runCursorBlocking(cwd, launchArgs, cursorEnvWithNotify);
     return;
   }
 
   if (launchPolicy === "inside-tmux") {
-    // Already in tmux: launch codex in current pane, HUD in bottom split
+    // Already in tmux: launch cursor-agent in current pane, HUD in bottom split
     const currentPaneId = process.env.TMUX_PANE;
     const staleHudPaneIds = listHudWatchPaneIdsInCurrentWindow(currentPaneId);
     for (const paneId of staleHudPaneIds) {
@@ -2331,7 +2360,7 @@ function runCodex(
 
     try {
       withTmuxExtendedKeys(cwd, () => {
-        runCodexBlocking(cwd, launchArgs, codexEnvWithNotify);
+        runCursorBlocking(cwd, launchArgs, cursorEnvWithNotify);
       });
     } finally {
       const cleanupPaneIds = buildHudPaneCleanupTargets(
@@ -2346,12 +2375,12 @@ function runCodex(
   } else if (launchPolicy === "direct") {
     // Detached HUD sessions require tmux. Skip the bootstrap entirely when the
     // binary is unavailable so direct launches do not emit noisy ENOENT logs.
-    runCodexBlocking(cwd, launchArgs, codexEnvWithNotify);
+    runCursorBlocking(cwd, launchArgs, cursorEnvWithNotify);
   } else {
-    // Not in tmux: create a new tmux session with codex + HUD pane
-    const codexCmd = buildTmuxPaneCommand("codex", launchArgs);
-    const detachedWindowsCodexCmd = nativeWindows
-      ? buildWindowsPromptCommand("codex", launchArgs)
+    // Not in tmux: create a new tmux session with cursor-agent + HUD pane
+    const cursorCmd = buildTmuxPaneCommand(CURSOR_AGENT_BINARY, launchArgs);
+    const detachedWindowsCursorCmd = nativeWindows
+      ? buildWindowsPromptCommand(CURSOR_AGENT_BINARY, launchArgs)
       : null;
     const sessionName = buildDetachedTmuxSessionName(cwd, sessionId);
     let createdDetachedSession = false;
@@ -2362,10 +2391,10 @@ function runCodex(
       const bootstrapSteps = buildDetachedSessionBootstrapSteps(
         sessionName,
         cwd,
-        codexCmd,
+        cursorCmd,
         hudCmd,
         workerLaunchArgs,
-        codexHomeOverride,
+        cursorHomeOverride,
         notifyTempContractRaw,
         nativeWindows,
         sessionId,
@@ -2413,10 +2442,10 @@ function runCodex(
             process.env.OMX_MOUSE !== "0",
             nativeWindows,
           );
-          if (nativeWindows && detachedWindowsCodexCmd) {
-            scheduleDetachedWindowsCodexLaunch(
+          if (nativeWindows && detachedWindowsCursorCmd) {
+            scheduleDetachedWindowsCursorLaunch(
               sessionName,
-              detachedWindowsCodexCmd,
+              detachedWindowsCursorCmd,
             );
           }
           for (const finalizeStep of finalizeSteps) {
@@ -2465,8 +2494,8 @@ function runCodex(
           }
         }
       }
-      // tmux not available or failed, just run codex directly
-      runCodexBlocking(cwd, launchArgs, codexEnvWithNotify);
+      // tmux not available or failed, just run cursor-agent directly
+      runCursorBlocking(cwd, launchArgs, cursorEnvWithNotify);
     }
   }
 }
@@ -2528,7 +2557,7 @@ function encodePowerShellCommand(commandText: string): string {
   return Buffer.from(commandText, "utf16le").toString("base64");
 }
 
-function isCodexVersionRequest(args: string[]): boolean {
+function isCursorVersionRequest(args: string[]): boolean {
   return args.some((arg) => CODEX_VERSION_FLAGS.has(arg));
 }
 
@@ -2601,7 +2630,7 @@ function buildDetachedWindowsBootstrapScript(
   ].join("");
 }
 
-function scheduleDetachedWindowsCodexLaunch(
+function scheduleDetachedWindowsCursorLaunch(
   sessionName: string,
   commandText: string,
 ): void {
@@ -2618,13 +2647,13 @@ function scheduleDetachedWindowsCodexLaunch(
 }
 
 /**
- * postLaunch: Clean up after Codex exits.
+ * postLaunch: Clean up after cursor-agent exits.
  * Each step is independently fault-tolerant (try/catch per step).
  */
 async function postLaunch(
   cwd: string,
   sessionId: string,
-  codexHomeOverride?: string,
+  cursorHomeOverride?: string,
   enableNotifyFallbackAuthority: boolean = false,
 ): Promise<void> {
   // Capture session start time before cleanup (writeSessionEnd deletes session.json)
@@ -2640,9 +2669,9 @@ async function postLaunch(
   // 0. Reap MCP orphans left behind by the session that just exited.
   await reapPostLaunchOrphanedMcpProcesses();
 
-  // 0. Flush fallback watcher once to reduce race with fast codex exit.
+  // 0. Flush fallback watcher once to reduce race with fast cursor-agent exit.
   try {
-    await flushNotifyFallbackOnce(cwd, { codexHomeOverride, enableAuthority: enableNotifyFallbackAuthority, sessionId });
+    await flushNotifyFallbackOnce(cwd, { cursorHomeOverride, enableAuthority: enableNotifyFallbackAuthority, sessionId });
   } catch (err) {
     process.stderr.write(`[cli/index] operation failed: ${err}\n`);
     // Non-fatal
@@ -2735,7 +2764,7 @@ async function postLaunch(
       process.exitCode && process.exitCode !== 0 ? "failed" : "finished";
     const errorSummary =
       normalizedEvent === "failed"
-        ? `codex exited with code ${process.exitCode}`
+        ? `cursor-agent exited with code ${process.exitCode}`
         : undefined;
     await emitNativeHookEvent(cwd, "session-end", {
       session_id: sessionId,
@@ -2953,7 +2982,7 @@ function tryKillPid(pid: number, signal: NodeJS.Signals = "SIGTERM"): boolean {
 
 async function startNotifyFallbackWatcher(
   cwd: string,
-  options: { codexHomeOverride?: string; enableAuthority?: boolean; sessionId?: string } = {},
+  options: { cursorHomeOverride?: string; enableAuthority?: boolean; sessionId?: string } = {},
 ): Promise<void> {
   const { mkdir, writeFile } = await import("fs/promises");
   const pidPath = notifyFallbackPidPath(cwd);

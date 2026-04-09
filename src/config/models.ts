@@ -19,10 +19,12 @@
  * Resolution: mode-specific > "default" key > OMX_DEFAULT_FRONTIER_MODEL > DEFAULT_FRONTIER_MODEL
  */
 
-import { parse as parseToml } from '@iarna/toml';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
-import { codexConfigPath, codexHome } from '../utils/paths.js';
+import { cursorHome } from '../utils/paths.js';
+
+/** @deprecated Use cursorHome */
+const codexHome = cursorHome;
 
 export interface ModelsConfig {
   [mode: string]: string | undefined;
@@ -37,7 +39,7 @@ interface OmxConfigFile {
   models?: ModelsConfig;
 }
 
-interface CodexConfigFile {
+interface EngineConfigFile {
   model_provider?: unknown;
   model_providers?: Record<string, unknown>;
 }
@@ -59,15 +61,13 @@ function readOmxConfigFile(codexHomeOverride?: string): OmxConfigFile | null {
   }
 }
 
-function readCodexConfigFile(codexHomeOverride?: string): CodexConfigFile | null {
-  const configPath = codexHomeOverride
-    ? join(codexHomeOverride, 'config.toml')
-    : codexConfigPath();
+function readEngineConfigFile(cursorHomeOverride?: string): EngineConfigFile | null {
+  const configPath = join(cursorHomeOverride || cursorHome(), '.omx-config.json');
   if (!existsSync(configPath)) return null;
   try {
-    const raw = parseToml(readFileSync(configPath, 'utf-8'));
+    const raw = JSON.parse(readFileSync(configPath, 'utf-8'));
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-    return raw as CodexConfigFile;
+    return raw as EngineConfigFile;
   } catch {
     return null;
   }
@@ -128,7 +128,7 @@ export function readActiveProviderEnvOverrides(
   env: NodeJS.ProcessEnv = process.env,
   codexHomeOverride?: string,
 ): NodeJS.ProcessEnv {
-  const config = readCodexConfigFile(codexHomeOverride);
+  const config = readEngineConfigFile(codexHomeOverride);
   if (!config) return {};
 
   const activeProvider = normalizeConfiguredValue(config.model_provider);

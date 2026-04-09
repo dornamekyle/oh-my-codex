@@ -21,31 +21,24 @@ async function writeJson(path: string, value: unknown): Promise<void> {
 const TEAM_STOP_COMMIT_GUIDANCE =
   " If system-generated worker auto-checkpoint commits exist, rewrite them into Lore-format final commits before merge/finalization.";
 
-describe("codex native hook config", () => {
+describe("cursor hook config", () => {
   it("builds the expected managed hooks.json shape", () => {
     const config = buildManagedCodexHooksConfig("/tmp/omx");
     assert.deepEqual(Object.keys(config.hooks), [
-      "SessionStart",
-      "PreToolUse",
-      "PostToolUse",
-      "UserPromptSubmit",
-      "Stop",
+      "beforeShellExecution",
+      "afterShellExecution",
+      "beforeMCPExecution",
+      "afterMCPExecution",
+      "afterFileEdit",
     ]);
 
-    const preToolUse = config.hooks.PreToolUse[0] as {
-      matcher?: string;
-      hooks?: Array<Record<string, unknown>>;
+    const beforeShell = config.hooks.beforeShellExecution[0] as {
+      command?: string;
     };
-    assert.equal(preToolUse.matcher, "Bash");
     assert.match(
-      String(preToolUse.hooks?.[0]?.command || ""),
-      /codex-native-hook\.js"?$/,
+      String(beforeShell.command || ""),
+      /cursor-hook\.js"?$/,
     );
-
-    const stop = config.hooks.Stop[0] as {
-      hooks?: Array<Record<string, unknown>>;
-    };
-    assert.equal(stop.hooks?.[0]?.timeout, 30);
   });
 });
 

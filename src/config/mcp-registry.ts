@@ -17,18 +17,25 @@ export interface UnifiedMcpRegistryLoadResult {
   warnings: string[];
 }
 
-export interface ClaudeCodeMcpServerConfig {
+/** MCP `mcpServers.<name>` entry shape (Claude Code, Cursor, and compatible clients). */
+export interface McpServerEntryConfig {
   command: string;
   args: string[];
   enabled: boolean;
 }
 
-export interface ClaudeCodeSettingsSyncPlan {
+export interface McpServersMergePlan {
   content?: string;
   added: string[];
   unchanged: string[];
   warnings: string[];
 }
+
+/** @deprecated Use {@link McpServerEntryConfig} */
+export type ClaudeCodeMcpServerConfig = McpServerEntryConfig;
+
+/** @deprecated Use {@link McpServersMergePlan} */
+export type ClaudeCodeSettingsSyncPlan = McpServersMergePlan;
 interface LoadUnifiedMcpRegistryOptions {
   candidates?: string[];
   homeDir?: string;
@@ -38,9 +45,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function toClaudeCodeMcpServerConfig(
+function toMcpServerEntryConfig(
   server: UnifiedMcpRegistryServer,
-): ClaudeCodeMcpServerConfig {
+): McpServerEntryConfig {
   return {
     command: server.command,
     args: [...server.args],
@@ -111,6 +118,10 @@ export function getLegacyUnifiedMcpRegistryCandidate(homeDir = homedir()): strin
   return join(homeDir, ".omc", "mcp-registry.json");
 }
 
+export function getCursorMcpSettingsPath(homeDir = homedir()): string {
+  return join(homeDir, ".cursor", "mcp.json");
+}
+
 export async function loadUnifiedMcpRegistry(
   options: LoadUnifiedMcpRegistryOptions = {},
 ): Promise<UnifiedMcpRegistryLoadResult> {
@@ -145,10 +156,14 @@ export async function loadUnifiedMcpRegistry(
   return { servers, sourcePath, warnings };
 }
 
-export function planClaudeCodeMcpSettingsSync(
+/**
+ * Merge shared registry servers into a JSON settings file's top-level `mcpServers` map.
+ * Preserves other top-level keys. Skips server names that already exist (add-only).
+ */
+export function planMcpServersMerge(
   existingContent: string,
   servers: UnifiedMcpRegistryServer[],
-): ClaudeCodeSettingsSyncPlan {
+): McpServersMergePlan {
   if (servers.length === 0) {
     return { added: [], unchanged: [], warnings: [] };
   }
@@ -162,7 +177,7 @@ export function planClaudeCodeMcpSettingsSync(
       return {
         added: [],
         unchanged: [],
-        warnings: [`failed to parse Claude settings.json: ${String(error)}`],
+        warnings: [`failed to parse MCP settings JSON: ${String(error)}`],
       };
     }
   }
@@ -171,7 +186,7 @@ export function planClaudeCodeMcpSettingsSync(
     return {
       added: [],
       unchanged: [],
-      warnings: ["Claude settings.json must contain a JSON object"],
+      warnings: ["MCP settings JSON must contain an object at the root"],
     };
   }
 
@@ -180,7 +195,7 @@ export function planClaudeCodeMcpSettingsSync(
     return {
       added: [],
       unchanged: [],
-      warnings: ['Claude settings.json field "mcpServers" must be an object'],
+      warnings: ['MCP settings JSON field "mcpServers" must be an object'],
     };
   }
 
@@ -195,7 +210,7 @@ export function planClaudeCodeMcpSettingsSync(
       unchanged.push(server.name);
       continue;
     }
-    nextMcpServers[server.name] = toClaudeCodeMcpServerConfig(server);
+    nextMcpServers[server.name] = toMcpServerEntryConfig(server);
     added.push(server.name);
   }
 
@@ -217,3 +232,6 @@ export function planClaudeCodeMcpSettingsSync(
     warnings: [],
   };
 }
+
+/** @deprecated Use {@link planMcpServersMerge} */
+export const planClaudeCodeMcpSettingsSync = planMcpServersMerge;

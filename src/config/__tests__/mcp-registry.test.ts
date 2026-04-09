@@ -4,9 +4,10 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
+  getCursorMcpSettingsPath,
   getUnifiedMcpRegistryCandidates,
   loadUnifiedMcpRegistry,
-  planClaudeCodeMcpSettingsSync,
+  planMcpServersMerge,
 } from "../mcp-registry.js";
 
 describe("unified MCP registry loader", () => {
@@ -91,8 +92,16 @@ describe("unified MCP registry loader", () => {
     const candidates = getUnifiedMcpRegistryCandidates("/tmp/home");
     assert.deepEqual(candidates, ["/tmp/home/.omx/mcp-registry.json"]);
   });
-  it("plans Claude settings sync by adding only missing shared servers", () => {
-    const plan = planClaudeCodeMcpSettingsSync(
+
+  it("returns Cursor MCP settings path under home", () => {
+    assert.equal(
+      getCursorMcpSettingsPath("/tmp/home"),
+      "/tmp/home/.cursor/mcp.json",
+    );
+  });
+
+  it("plans MCP settings merge by adding only missing shared servers", () => {
+    const plan = planMcpServersMerge(
       JSON.stringify(
         {
           theme: "dark",
@@ -145,8 +154,8 @@ describe("unified MCP registry loader", () => {
     });
   });
 
-  it('warns when Claude settings.json has a non-object "mcpServers" field', () => {
-    const plan = planClaudeCodeMcpSettingsSync(
+  it('warns when MCP settings JSON has a non-object "mcpServers" field', () => {
+    const plan = planMcpServersMerge(
       JSON.stringify({ mcpServers: [] }),
       [
         {

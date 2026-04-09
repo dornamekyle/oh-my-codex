@@ -6,13 +6,13 @@ import { existsSync } from 'fs';
 import { readdir, readFile } from 'fs/promises';
 import { join } from 'path';
 import {
-  codexHome, codexConfigPath, codexPromptsDir,
+  cursorHome, cursorMcpConfigPath, cursorRulesDir,
   userSkillsDir, projectSkillsDir, omxStateDir, detectLegacySkillRootOverlap,
 } from '../utils/paths.js';
 import { classifySpawnError, spawnPlatformCommandSync } from '../utils/platform-command.js';
 import { getCatalogExpectations } from './catalog-contract.js';
-import { parse as parseToml } from '@iarna/toml';
 import { resolvePackagedExploreHarnessCommand, EXPLORE_BIN_ENV } from './explore.js';
+import { CURSOR_AGENT_BINARY } from './constants.js';
 import { getPackageRoot } from '../utils/package.js';
 import { getDefaultBridge, isBridgeEnabled } from '../runtime/bridge.js';
 import { OMX_EXPLORE_CMD_ENV, isExploreCommandRoutingEnabled } from '../hooks/explore-routing.js';
@@ -39,9 +39,9 @@ interface DoctorScopeResolution {
 }
 
 interface DoctorPaths {
-  codexHomeDir: string;
-  configPath: string;
-  promptsDir: string;
+  cursorHomeDir: string;
+  mcpConfigPath: string;
+  rulesDir: string;
   skillsDir: string;
   stateDir: string;
 }
@@ -77,20 +77,20 @@ async function resolveDoctorScope(cwd: string): Promise<DoctorScopeResolution> {
 
 function resolveDoctorPaths(cwd: string, scope: DoctorSetupScope): DoctorPaths {
   if (scope === 'project') {
-    const codexHomeDir = join(cwd, '.codex');
+    const homeDir = join(cwd, '.cursor');
     return {
-      codexHomeDir,
-      configPath: join(codexHomeDir, 'config.toml'),
-      promptsDir: join(codexHomeDir, 'prompts'),
+      cursorHomeDir: homeDir,
+      mcpConfigPath: join(homeDir, 'mcp.json'),
+      rulesDir: join(homeDir, 'rules'),
       skillsDir: projectSkillsDir(cwd),
       stateDir: omxStateDir(cwd),
     };
   }
 
   return {
-    codexHomeDir: codexHome(),
-    configPath: codexConfigPath(),
-    promptsDir: codexPromptsDir(),
+    cursorHomeDir: cursorHome(),
+    mcpConfigPath: cursorMcpConfigPath(),
+    rulesDir: cursorRulesDir(),
     skillsDir: userSkillsDir(),
     stateDir: omxStateDir(cwd),
   };
@@ -115,28 +115,20 @@ export async function doctor(options: DoctorOptions = {}): Promise<void> {
 
   const checks: Check[] = [];
 
-  // Check 1: Codex CLI installed
-  checks.push(checkCodexCli());
+  checks.push(checkCursorCli());
 
-  // Check 2: Node.js version
   checks.push(checkNodeVersion());
 
-  // Check 2.5: Explore harness readiness
   checks.push(checkExploreHarness());
 
-  // Check 3: Codex home directory
-  checks.push(checkDirectory('Codex home', paths.codexHomeDir));
+  checks.push(checkDirectory('Cursor home', paths.cursorHomeDir));
 
-  // Check 4: Config file
-  checks.push(await checkConfig(paths.configPath));
+  checks.push(await checkConfig(paths.mcpConfigPath));
 
-  // Check 4.5: Explore routing default
-  checks.push(await checkExploreRouting(paths.configPath));
+  checks.push(await checkExploreRouting(paths.mcpConfigPath));
 
-  // Check 5: Prompts installed
-  checks.push(await checkPrompts(paths.promptsDir));
+  checks.push(await checkPrompts(paths.rulesDir));
 
-  // Check 6: Skills installed
   checks.push(await checkSkills(paths.skillsDir));
 
   // Check 6.5: Legacy/current skill-root overlap
@@ -144,14 +136,11 @@ export async function doctor(options: DoctorOptions = {}): Promise<void> {
     checks.push(await checkLegacySkillRootOverlap());
   }
 
-  // Check 7: AGENTS.md in project
-  checks.push(checkAgentsMd(scopeResolution.scope, paths.codexHomeDir));
+  checks.push(checkAgentsMd(scopeResolution.scope, paths.cursorHomeDir));
 
-  // Check 8: State directory
   checks.push(checkDirectory('State dir', paths.stateDir));
 
-  // Check 9: MCP servers configured
-  checks.push(await checkMcpServers(paths.configPath));
+  checks.push(await checkMcpServers(paths.mcpConfigPath));
 
   // Print results
   let passCount = 0;
@@ -420,8 +409,8 @@ function listTeamTmuxSessions(): Set<string> | null {
   return new Set(sessions);
 }
 
-function checkCodexCli(): Check {
-  const { result } = spawnPlatformCommandSync('codex', ['--version'], {
+function checkCursorCli(): Check {
+  const { result } = spawnPlatformCommandSync(CURSOR_AGENT_BINARY, ['--version'], {
     encoding: 'utf-8',
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -429,32 +418,35 @@ function checkCodexCli(): Check {
     const code = (result.error as NodeJS.ErrnoException).code;
     const kind = classifySpawnError(result.error as NodeJS.ErrnoException);
     if (kind === 'missing') {
-      return { name: 'Codex CLI', status: 'fail', message: 'not found - install from https://github.com/openai/codex' };
+      return { name: 'Cursor CLI', status: 'fail', message: `${CURSOR_AGENT_BINARY} not found - install Cursor CLI` };
     }
     if (kind === 'blocked') {
       return {
-        name: 'Codex CLI',
+        name: 'Cursor CLI',
         status: 'fail',
         message: `found but could not be executed in this environment (${code || 'blocked'})`,
       };
     }
     return {
-      name: 'Codex CLI',
+      name: 'Cursor CLI',
       status: 'fail',
       message: `probe failed - ${result.error.message}`,
     };
   }
   if (result.status === 0) {
     const version = (result.stdout || '').trim();
-    return { name: 'Codex CLI', status: 'pass', message: `installed (${version})` };
+    return { name: 'Cursor CLI', status: 'pass', message: `installed (${version})` };
   }
   const stderr = (result.stderr || '').trim();
   return {
-    name: 'Codex CLI',
+    name: 'Cursor CLI',
     status: 'fail',
     message: stderr !== '' ? `probe failed - ${stderr}` : `probe failed with exit ${result.status}`,
   };
 }
+
+/** @deprecated Use checkCursorCli */
+const checkCodexCli = checkCursorCli;
 
 function checkNodeVersion(): Check {
   const major = parseInt(process.versions.node.split('.')[0] ?? '0', 10);
@@ -547,54 +539,36 @@ function checkDirectory(name: string, path: string): Check {
   return { name, status: 'warn', message: `${path} (not created yet)` };
 }
 
-function validateToml(content: string): string | null {
-  try {
-    parseToml(content);
-    return null;
-  } catch (error) {
-    if (error instanceof Error) {
-      return error.message;
-    }
-    return 'unknown TOML parse error';
-  }
-}
-
 async function checkConfig(configPath: string): Promise<Check> {
   if (!existsSync(configPath)) {
-    return { name: 'Config', status: 'warn', message: 'config.toml not found' };
+    return { name: 'Config', status: 'warn', message: 'mcp.json not found' };
   }
 
   try {
     const content = await readFile(configPath, 'utf-8');
-    const tomlError = validateToml(content);
 
-    if (tomlError) {
-      const hint =
-        tomlError.includes("Can't redefine existing key") ||
-        tomlError.includes('duplicate') ||
-        tomlError.includes('[tui]')
-          ? 'possible duplicate TOML table such as [tui]'
-          : 'invalid TOML syntax';
-
+    try {
+      JSON.parse(content);
+    } catch {
       return {
         name: 'Config',
         status: 'fail',
-        message: `invalid config.toml (${hint})`,
+        message: 'invalid mcp.json (malformed JSON)',
       };
     }
 
     const hasOmx = content.includes('omx_') || content.includes('oh-my-codex');
     if (hasOmx) {
-      return { name: 'Config', status: 'pass', message: 'config.toml has OMX entries' };
+      return { name: 'Config', status: 'pass', message: 'mcp.json has OMX entries' };
     }
 
     return {
       name: 'Config',
       status: 'warn',
-      message: 'config.toml exists but no OMX entries yet (expected before first setup; run "omx setup --force" once)',
+      message: 'mcp.json exists but no OMX entries yet (expected before first setup; run "omx setup --force" once)',
     };
   } catch {
-    return { name: 'Config', status: 'fail', message: 'cannot read config.toml' };
+    return { name: 'Config', status: 'fail', message: 'cannot read mcp.json' };
   }
 }
 
@@ -614,13 +588,13 @@ async function checkExploreRouting(configPath: string): Promise<Check> {
     return {
       name: 'Explore routing',
       status: 'pass',
-      message: 'enabled by default (config.toml not found yet)',
+      message: 'enabled by default (mcp.json not found yet)',
     };
   }
 
   try {
     const content = await readFile(configPath, 'utf-8');
-    const parsed = parseToml(content) as { env?: Record<string, unknown> };
+    const parsed = JSON.parse(content) as { env?: Record<string, unknown> };
     const configuredValue = parsed?.env?.USE_OMX_EXPLORE_CMD;
 
     if (
@@ -633,7 +607,7 @@ async function checkExploreRouting(configPath: string): Promise<Check> {
         name: 'Explore routing',
         status: 'warn',
         message:
-          'disabled in config.toml [env]; set USE_OMX_EXPLORE_CMD = "1" to restore default explore-first routing',
+          'disabled in mcp.json; set USE_OMX_EXPLORE_CMD to "1" to restore default explore-first routing',
       };
     }
 
@@ -646,7 +620,7 @@ async function checkExploreRouting(configPath: string): Promise<Check> {
     return {
       name: 'Explore routing',
       status: 'fail',
-      message: 'cannot read config.toml for explore routing check',
+      message: 'cannot read mcp.json for explore routing check',
     };
   }
 }
@@ -654,17 +628,17 @@ async function checkExploreRouting(configPath: string): Promise<Check> {
 async function checkPrompts(dir: string): Promise<Check> {
   const expectations = getCatalogExpectations();
   if (!existsSync(dir)) {
-    return { name: 'Prompts', status: 'warn', message: 'prompts directory not found' };
+    return { name: 'Rules', status: 'warn', message: 'rules directory not found' };
   }
   try {
     const files = await readdir(dir);
-    const mdFiles = files.filter(f => f.endsWith('.md'));
+    const mdFiles = files.filter(f => f.endsWith('.md') || f.endsWith('.mdc'));
     if (mdFiles.length >= expectations.promptMin) {
-      return { name: 'Prompts', status: 'pass', message: `${mdFiles.length} agent prompts installed` };
+      return { name: 'Rules', status: 'pass', message: `${mdFiles.length} rule files installed` };
     }
-    return { name: 'Prompts', status: 'warn', message: `${mdFiles.length} prompts (expected >= ${expectations.promptMin})` };
+    return { name: 'Rules', status: 'warn', message: `${mdFiles.length} rule files (expected >= ${expectations.promptMin})` };
   } catch {
-    return { name: 'Prompts', status: 'fail', message: 'cannot read prompts directory' };
+    return { name: 'Rules', status: 'fail', message: 'cannot read rules directory' };
   }
 }
 
@@ -692,7 +666,7 @@ async function checkLegacySkillRootOverlap(): Promise<Check> {
       name: 'Legacy skill roots',
       status: 'warn',
       message:
-        `legacy ~/.agents/skills still exists (${overlap.legacySkillCount} skills) alongside canonical ${overlap.canonicalDir}; remove or archive it if Codex shows duplicate entries`,
+        `legacy ~/.agents/skills still exists (${overlap.legacySkillCount} skills) alongside canonical ${overlap.canonicalDir}; remove or archive it if Cursor shows duplicate entries`,
     };
   }
 
@@ -703,7 +677,7 @@ async function checkLegacySkillRootOverlap(): Promise<Check> {
     name: 'Legacy skill roots',
     status: 'warn',
     message:
-      `${overlap.overlappingSkillNames.length} overlapping skill names between ${overlap.canonicalDir} and ${overlap.legacyDir}${mismatchMessage}; Codex Enable/Disable Skills may show duplicates until ~/.agents/skills is cleaned up`,
+      `${overlap.overlappingSkillNames.length} overlapping skill names between ${overlap.canonicalDir} and ${overlap.legacyDir}${mismatchMessage}; Cursor Enable/Disable Skills may show duplicates until ~/.agents/skills is cleaned up`,
   };
 }
 
@@ -724,9 +698,9 @@ async function checkSkills(dir: string): Promise<Check> {
   }
 }
 
-function checkAgentsMd(scope: DoctorSetupScope, codexHomeDir: string): Check {
+function checkAgentsMd(scope: DoctorSetupScope, cursorHomeDir: string): Check {
   if (scope === 'user') {
-    const userAgentsMd = join(codexHomeDir, 'AGENTS.md');
+    const userAgentsMd = join(cursorHomeDir, 'AGENTS.md');
     if (existsSync(userAgentsMd)) {
       return { name: 'AGENTS.md', status: 'pass', message: `found in ${userAgentsMd}` };
     }
@@ -750,13 +724,15 @@ function checkAgentsMd(scope: DoctorSetupScope, codexHomeDir: string): Check {
 
 async function checkMcpServers(configPath: string): Promise<Check> {
   if (!existsSync(configPath)) {
-    return { name: 'MCP Servers', status: 'warn', message: 'config.toml not found' };
+    return { name: 'MCP Servers', status: 'warn', message: 'mcp.json not found' };
   }
   try {
     const content = await readFile(configPath, 'utf-8');
-    const mcpCount = (content.match(/\[mcp_servers\./g) || []).length;
+    const parsed = JSON.parse(content) as { mcpServers?: Record<string, unknown> };
+    const servers = parsed?.mcpServers ?? {};
+    const mcpCount = Object.keys(servers).length;
     if (mcpCount > 0) {
-      const hasOmx = content.includes('omx_state') || content.includes('omx_memory');
+      const hasOmx = 'omx_state' in servers || 'omx_memory' in servers;
       if (hasOmx) {
         return { name: 'MCP Servers', status: 'pass', message: `${mcpCount} servers configured (OMX present)` };
       }
@@ -768,6 +744,6 @@ async function checkMcpServers(configPath: string): Promise<Check> {
     }
     return { name: 'MCP Servers', status: 'warn', message: 'no MCP servers configured' };
   } catch {
-    return { name: 'MCP Servers', status: 'fail', message: 'cannot read config.toml' };
+    return { name: 'MCP Servers', status: 'fail', message: 'cannot read mcp.json' };
   }
 }

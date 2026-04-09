@@ -1,0 +1,45 @@
+---
+description: oh-my-codex 项目上下文与协作约定
+globs:
+alwaysApply: true
+---
+
+# oh-my-codex (OMX) Context
+
+## Tech Stack
+
+- TypeScript（ES2022、NodeNext ESM、`strict`），Node ≥ 20；产物输出到 `dist/`。
+- CLI：`omx`（`src/cli/`，入口 `omx.ts` → 编译后的 `index.js`）。
+- Rust workspace（`crates/`）：explore harness、mux、runtime、sparkshell 等，与 `npm run build:*` 脚本联动。
+- 运行时依赖：`zod`、`@modelcontextprotocol/sdk`、`@iarna/toml`；Lint 用 Biome。
+
+## Architecture
+
+- OMX 是 Codex CLI 的编排层：钩子、MCP、`.omx/` 状态与计划、可选 tmux Team 多窗格 worker。
+- 统一引导契约见 `docs/guidance-schema.md`；不要破坏 marker：`<!-- OMX:RUNTIME:START/END -->`、`<!-- OMX:TEAM:WORKER:START/END -->` 及任务/mailbox 路径约定。
+- 包对外 API 以 `src/index.ts` 导出为准；多数能力通过 CLI + 文件约定使用。
+
+## Key Conventions
+
+- 新建/修改 TS 时使用 ESM 路径：`from "./x.js"`（与 `tsconfig` NodeNext 一致）。
+- 优先保持与现有目录职责一致：`team/` 不塞无关业务；`mcp/` 仅服务与引导逻辑。
+- 不随意新增 npm 依赖（仓库工作流强调显式需求再引入）。
+- 变更后应跑 `npm run lint`、`npx tsc --noEmit`，涉及 Rust 时跑 `cargo fmt` / `cargo clippy`；测试用 `npm test` 或针对性 `npm run test:node` 等。
+
+## Module Map（简）
+
+| 区域 | 职责 |
+|------|------|
+| `src/cli/` | `omx` 子命令与 Codex 启动/会话侧集成 |
+| `src/team/` | 团队编排、tmux、任务/邮箱/锁与 worker 生命周期 |
+| `src/mcp/` | state / memory / trace / code-intel MCP 实现 |
+| `src/hooks/` | Codex 钩子、overlay、可扩展事件、code-simplifier |
+| `src/pipeline/` | ralplan / team-exec / ralph-verify 等阶段工厂 |
+| `src/state/`、`src/ralph/`、`src/ralplan/` 等 | 模式状态与规划工作流 |
+| `agents/`、`prompts/`、`skills/`、`templates/` | 分发资产，与 AGENTS 技能体系对齐 |
+
+## Important Patterns
+
+- 状态与任务 ID 格式以 `docs/guidance-schema.md` 为准，避免自创路径破坏 Team/MCP 互操作。
+- 编辑编排逻辑时同步考虑：仅 leader CLI、worker 子进程、以及 MCP 状态读写的边界。
+- 大型二进制/原生构建路径已有脚本（如 `build:explore`、`build:sparkshell`）；勿重复造构建链。

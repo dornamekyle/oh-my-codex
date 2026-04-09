@@ -31,10 +31,11 @@ import {
 import { buildMergedConfig, getRootModelName } from "../config/generator.js";
 import { buildManagedCodexHooksConfig } from "../config/codex-hooks.js";
 import {
+  getCursorMcpSettingsPath,
   getLegacyUnifiedMcpRegistryCandidate,
   getUnifiedMcpRegistryCandidates,
   loadUnifiedMcpRegistry,
-  planClaudeCodeMcpSettingsSync,
+  planMcpServersMerge,
   type UnifiedMcpRegistryLoadResult,
 } from "../config/mcp-registry.js";
 import { generateAgentToml } from "../agents/native-config.js";
@@ -828,6 +829,12 @@ export async function setup(options: SetupOptions = {}): Promise<void> {
   const resolvedConfig = managedConfig.finalConfig;
   if (resolvedScope.scope === "user") {
     await syncClaudeCodeMcpSettings(
+      sharedMcpRegistry,
+      summary.config,
+      backupContext,
+      { dryRun, verbose },
+    );
+    await syncCursorMcpSettings(
       sharedMcpRegistry,
       summary.config,
       backupContext,
@@ -1646,10 +1653,7 @@ async function syncClaudeCodeMcpSettings(
   const existing = existsSync(settingsPath)
     ? await readFile(settingsPath, "utf-8")
     : "";
-  const syncPlan = planClaudeCodeMcpSettingsSync(
-    existing,
-    sharedMcpRegistry.servers,
-  );
+  const syncPlan = planMcpServersMerge(existing, sharedMcpRegistry.servers);
 
   for (const warning of syncPlan.warnings) {
     console.log(`  warning: ${warning}`);
@@ -1675,6 +1679,55 @@ async function syncClaudeCodeMcpSettings(
     backupContext,
     options,
     `Claude Code MCP settings ${settingsPath} (+${syncPlan.added.join(", ")})`,
+  );
+}
+
+async function syncCursorMcpSettings(
+  sharedMcpRegistry: UnifiedMcpRegistryLoadResult,
+  summary: SetupCategorySummary,
+  backupContext: SetupBackupContext,
+  options: Pick<SetupOptions, "dryRun" | "verbose">,
+): Promise<void> {
+  if (process.env.OMX_CURSOR_MCP_SYNC_DISABLE === "1") {
+    if (options.verbose) {
+      console.log(
+        "  skipping Cursor MCP sync (OMX_CURSOR_MCP_SYNC_DISABLE=1)",
+      );
+    }
+    return;
+  }
+  if (sharedMcpRegistry.servers.length === 0) return;
+
+  const settingsPath = getCursorMcpSettingsPath();
+  const existing = existsSync(settingsPath)
+    ? await readFile(settingsPath, "utf-8")
+    : "";
+  const syncPlan = planMcpServersMerge(existing, sharedMcpRegistry.servers);
+
+  for (const warning of syncPlan.warnings) {
+    console.log(`  warning: ${warning}`);
+  }
+  if (syncPlan.warnings.length > 0) {
+    summary.skipped += 1;
+    return;
+  }
+  if (!syncPlan.content) {
+    summary.unchanged += 1;
+    if (options.verbose && syncPlan.unchanged.length > 0) {
+      console.log(
+        `  shared MCP servers already present in Cursor MCP settings (${settingsPath})`,
+      );
+    }
+    return;
+  }
+
+  await syncManagedContent(
+    syncPlan.content,
+    settingsPath,
+    summary,
+    backupContext,
+    options,
+    `Cursor MCP settings ${settingsPath} (+${syncPlan.added.join(", ")})`,
   );
 }
 
