@@ -1443,6 +1443,113 @@ exit 0
     });
   });
 
+  it('suppresses duplicate visible leader injection when the pane already shows the same classified state', async () => {
+    await withTempWorkingDir(async (cwd) => {
+      const omxDir = join(cwd, '.omx');
+      const stateDir = join(omxDir, 'state');
+      const logsDir = join(omxDir, 'logs');
+      const teamName = 'same-classified-state';
+      const teamDir = join(stateDir, 'team', teamName);
+      const mailboxDir = join(teamDir, 'mailbox');
+      const fakeBinDir = join(cwd, 'fake-bin');
+      const fakeTmuxPath = join(fakeBinDir, 'tmux');
+      const tmuxLogPath = join(cwd, 'tmux.log');
+
+      await mkdir(logsDir, { recursive: true });
+      await mkdir(mailboxDir, { recursive: true });
+      await mkdir(fakeBinDir, { recursive: true });
+
+      await writeJson(join(stateDir, 'team-state.json'), {
+        active: true,
+        team_name: teamName,
+        current_phase: 'team-exec',
+      });
+      await writeJson(join(teamDir, 'config.json'), {
+        name: teamName,
+        tmux_session: 'same-classified-state:0',
+        leader_pane_id: '%75',
+      });
+      await writeJson(join(mailboxDir, 'leader-fixed.json'), {
+        worker: 'leader-fixed',
+        messages: [
+          {
+            message_id: 'same-classified-msg',
+            from_worker: 'worker-1',
+            to_worker: 'leader-fixed',
+            body: 'please review latest output',
+            created_at: '2026-03-12T00:00:00.000Z',
+          },
+        ],
+      });
+
+      const fakeTmux = `#!/usr/bin/env bash
+set -eu
+echo "$@" >> "${tmuxLogPath}"
+cmd="$1"
+shift || true
+if [[ "$cmd" == "display-message" ]]; then
+  target=""
+  format=""
+  while (($#)); do
+    case "$1" in
+      -p) shift ;;
+      -t) target="$2"; shift 2 ;;
+      *) format="$1"; shift ;;
+    esac
+  done
+  if [[ "$format" == "#{pane_in_mode}" && "$target" == "%75" ]]; then
+    echo "0"
+    exit 0
+  fi
+  if [[ "$format" == "#{pane_current_command}" && "$target" == "%75" ]]; then
+    echo "codex"
+    exit 0
+  fi
+  exit 0
+fi
+if [[ "$cmd" == "capture-pane" ]]; then
+  cat <<'EOF'
+Team same-classified-state: 1 msg(s) for leader. Next: read messages; keep orchestrating; if done, gracefully shut down: omx team shutdown same-classified-state.
+EOF
+  exit 0
+fi
+if [[ "$cmd" == "send-keys" ]]; then
+  exit 0
+fi
+if [[ "$cmd" == "list-panes" ]]; then
+  echo "%1 12345"
+  exit 0
+fi
+exit 0
+`;
+      await writeFile(fakeTmuxPath, fakeTmux);
+      await chmod(fakeTmuxPath, 0o755);
+
+      const result = runNotifyHook(cwd, fakeBinDir);
+      assert.equal(result.status, 0, `notify-hook failed: ${result.stderr || result.stdout}`);
+
+      const tmuxLog = await readFile(tmuxLogPath, 'utf-8');
+      assert.match(tmuxLog, /capture-pane -t %75 -p -S -80/);
+      assert.doesNotMatch(tmuxLog, /send-keys -t %75 -l Team same-classified-state: 1 msg\(s\) for leader\./, 'same visible classified state should not be reinjected');
+
+      const eventsPath = join(teamDir, 'events', 'events.ndjson');
+      const events = (await readFile(eventsPath, 'utf-8')).trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
+      const nudgeEvent = events.find((entry: { type?: string; reason?: string; orchestration_intent?: string }) =>
+        entry.type === 'team_leader_nudge' && entry.reason === 'new_mailbox_message');
+      assert.ok(nudgeEvent, 'suppressed visible sends should still emit leader nudge events');
+      assert.equal(nudgeEvent.orchestration_intent, 'pending-mailbox-review');
+
+      const deliveryLog = await readTeamDeliveryLog(cwd);
+      assert.ok(deliveryLog.some((entry) =>
+        entry.event === 'nudge_triggered'
+        && entry.team === teamName
+        && entry.to_worker === 'leader-fixed'
+        && entry.result === 'suppressed'
+        && entry.reason === 'new_mailbox_message'
+        && entry.suppression_reason === 'pane_already_shows_same_classified_state'));
+    });
+  });
+
   it('does not inject leader nudge while leader pane is in copy-mode', async () => {
     await withTempWorkingDir(async (cwd) => {
       const omxDir = join(cwd, '.omx');
@@ -2535,6 +2642,108 @@ exit 0
       const finalLog = await readFile(tmuxLogPath, 'utf-8');
       assert.match(finalLog, /Team stale-cadence:/);
       assert.match(finalLog, /Team stale-cadence: leader stale, \d+ worker pane\(s\) still active\./);
+    });
+  });
+
+  it('suppresses stale leader follow-up when detached worktree progress is still fresh', async () => {
+    await withTempWorkingDir(async (cwd) => {
+      const omxDir = join(cwd, '.omx');
+      const stateDir = join(omxDir, 'state');
+      const logsDir = join(omxDir, 'logs');
+      const teamName = 'fresh-detached-progress';
+      const teamDir = join(stateDir, 'team', teamName);
+      const workersDir = join(teamDir, 'workers');
+      const tasksDir = join(teamDir, 'tasks');
+      const workerWorktree = join(cwd, 'worktrees', 'worker-1');
+      const fakeBinDir = join(cwd, 'fake-bin');
+      const fakeTmuxPath = join(fakeBinDir, 'tmux');
+      const tmuxLogPath = join(cwd, 'tmux.log');
+
+      await mkdir(logsDir, { recursive: true });
+      await mkdir(tasksDir, { recursive: true });
+      await mkdir(join(workersDir, 'worker-1'), { recursive: true });
+      await mkdir(join(workerWorktree, '.omx', 'state'), { recursive: true });
+      await mkdir(fakeBinDir, { recursive: true });
+
+      await writeJson(join(stateDir, 'team-state.json'), {
+        active: true,
+        team_name: teamName,
+        current_phase: 'team-exec',
+      });
+      await writeJson(join(teamDir, 'config.json'), {
+        name: teamName,
+        tmux_session: 'omx-team-fresh-detached-progress',
+        leader_pane_id: '%99',
+        workers: [
+          { name: 'worker-1', index: 1, pane_id: '%10', worktree_path: workerWorktree },
+        ],
+      });
+      await writeJson(join(stateDir, 'hud-state.json'), {
+        last_turn_at: new Date(Date.now() - 300_000).toISOString(),
+        turn_count: 5,
+      });
+      await writeJson(join(tasksDir, 'task-1.json'), {
+        id: '1',
+        subject: 'Apply detached fix',
+        description: 'keep going',
+        status: 'in_progress',
+        owner: 'worker-1',
+        created_at: new Date(Date.now() - 300_000).toISOString(),
+      });
+      await writeJson(join(workersDir, 'worker-1', 'status.json'), {
+        state: 'working',
+        current_task_id: '1',
+        updated_at: new Date(Date.now() - 300_000).toISOString(),
+      });
+      await writeJson(join(workersDir, 'worker-1', 'heartbeat.json'), {
+        last_turn_at: new Date(Date.now() - 300_000).toISOString(),
+        turn_count: 2,
+        alive: true,
+      });
+      await writeJson(join(stateDir, 'team-leader-nudge.json'), {
+        last_nudged_by_team: {
+          [teamName]: {
+            at: new Date(Date.now() - 60_000).toISOString(),
+            last_message_id: '',
+            reason: 'stale_leader_panes_alive',
+          },
+        },
+        progress_by_team: {
+          [teamName]: {
+            signature: JSON.stringify({
+              tasks: [{ id: '1', owner: 'worker-1', status: 'in_progress' }],
+              workers: [{
+                worker: 'worker-1',
+                state: 'working',
+                current_task_id: '1',
+                status_missing: false,
+                turn_count: 2,
+                heartbeat_missing: false,
+              }],
+            }),
+            last_progress_at: new Date(Date.now() - 300_000).toISOString(),
+          },
+        },
+      });
+      await writeJson(join(workerWorktree, '.omx', 'state', 'current-task-baseline.json'), {
+        version: 1,
+        tasks: [],
+      });
+
+      await writeFile(fakeTmuxPath, buildFakeTmuxWithListPanes(tmuxLogPath, ['%10 12345']));
+      await chmod(fakeTmuxPath, 0o755);
+
+      const result = runNotifyHook(cwd, fakeBinDir, {
+        OMX_TEAM_PROGRESS_STALL_MS: '60000',
+        OMX_TEAM_LEADER_NUDGE_MS: '30000',
+        OMX_TEAM_LEADER_STALE_MS: '60000',
+      });
+      assert.equal(result.status, 0, `notify-hook failed: ${result.stderr || result.stdout}`);
+
+      if (existsSync(tmuxLogPath)) {
+        const tmuxLog = await readFile(tmuxLogPath, 'utf-8');
+        assert.doesNotMatch(tmuxLog, /Team fresh-detached-progress: leader stale,/);
+      }
     });
   });
 

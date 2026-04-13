@@ -660,6 +660,33 @@ describe('runtime', () => {
     }
   });
 
+  it('waitForWorkerStartupEvidence treats blocked worker status as settled progress even without a claimed task id', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'omx-runtime-codex-blocked-startup-'));
+    try {
+      await initTeamState('codex-blocked-startup', 'blocked startup evidence test', 'executor', 1, cwd);
+
+      await writeAtomic(
+        join(cwd, '.omx', 'state', 'team', 'codex-blocked-startup', 'workers', 'worker-1', 'status.json'),
+        JSON.stringify({
+          state: 'blocked',
+          reason: 'waiting on shared file',
+          updated_at: new Date().toISOString(),
+        }, null, 2),
+      );
+      const progress = await waitForWorkerStartupEvidence({
+        teamName: 'codex-blocked-startup',
+        workerName: 'worker-1',
+        workerCli: 'codex',
+        cwd,
+        timeoutMs: 25,
+        pollMs: 5,
+      });
+      assert.equal(progress, 'worker_progress');
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('startTeam rejects interactive startup when tmux fallback never produces worker startup evidence', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'omx-runtime-startup-no-evidence-'));
     const prevTmux = process.env.TMUX;

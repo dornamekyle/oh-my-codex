@@ -30,6 +30,22 @@ function resolveLauncherPath(rawPath: string, baseCwd: string): string {
   }
 }
 
+export function canonicalizeComparablePath(rawPath: string): string {
+  const absolutePath = resolve(rawPath);
+  if (!existsSync(absolutePath)) return absolutePath;
+  try {
+    return typeof realpathSync.native === "function"
+      ? realpathSync.native(absolutePath)
+      : realpathSync(absolutePath);
+  } catch {
+    return absolutePath;
+  }
+}
+
+export function sameFilePath(leftPath: string, rightPath: string): boolean {
+  return canonicalizeComparablePath(leftPath) === canonicalizeComparablePath(rightPath);
+}
+
 export function resolveOmxEntryPath(
   options: {
     argv1?: string | null;
@@ -268,6 +284,11 @@ export function omxProjectMemoryPath(projectRoot?: string): string {
 /** oh-my-codex notepad file (.omx/notepad.md) */
 export function omxNotepadPath(projectRoot?: string): string {
   return join(projectRoot || process.cwd(), ".omx", "notepad.md");
+}
+
+/** oh-my-codex wiki directory (.omx/wiki/) */
+export function omxWikiDir(projectRoot?: string): string {
+  return join(projectRoot || process.cwd(), ".omx", "wiki");
 }
 
 /** oh-my-codex plans directory (.omx/plans/) */

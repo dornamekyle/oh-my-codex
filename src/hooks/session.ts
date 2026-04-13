@@ -5,10 +5,10 @@
  * and provides structured logging for session events.
  */
 
-import { readFile, writeFile, mkdir, unlink, appendFile } from 'fs/promises';
-import { dirname, join, resolve as resolvePath } from 'path';
+import { readFile, writeFile, mkdir, unlink, appendFile, rm } from 'fs/promises';
+import { dirname, join } from 'path';
 import { existsSync, readFileSync } from 'fs';
-import { omxStateDir, omxLogsDir } from '../utils/paths.js';
+import { omxStateDir, omxLogsDir, sameFilePath } from '../utils/paths.js';
 import { getStateFilePath } from '../mcp/state-paths.js';
 
 export interface SessionState {
@@ -34,6 +34,30 @@ function sessionPath(cwd: string): string {
 
 function historyPath(cwd: string): string {
   return join(omxLogsDir(cwd), HISTORY_FILE);
+}
+
+async function removeDeadSessionHudState(
+  cwd: string,
+  sessionIds: Array<string | undefined>,
+): Promise<void> {
+  const uniqueSessionIds = [...new Set(
+    sessionIds
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      .map((value) => value.trim()),
+  )];
+
+  const candidatePaths = [
+    getStateFilePath('hud-state.json', cwd),
+    ...uniqueSessionIds.map((sessionId) => getStateFilePath('hud-state.json', cwd, sessionId)),
+  ];
+
+  await Promise.all(candidatePaths.map(async (path) => {
+    try {
+      await rm(path, { force: true });
+    } catch {
+      // best effort only
+    }
+  }));
 }
 
 /**
@@ -87,7 +111,7 @@ export function isSessionStateAuthoritativeForCwd(state: SessionState, cwd: stri
   if (!SESSION_ID_PATTERN.test(state.session_id)) return false;
 
   if (typeof state.cwd === 'string' && state.cwd.trim() !== '') {
-    return resolvePath(state.cwd) === resolvePath(cwd);
+    return sameFilePath(state.cwd, cwd);
   }
 
   return true;
@@ -349,6 +373,12 @@ export async function writeSessionEnd(cwd: string, sessionId: string): Promise<v
   };
 
   await appendFile(historyPath(cwd), JSON.stringify(historyEntry) + '\n');
+
+  await removeDeadSessionHudState(cwd, [
+    state?.session_id,
+    state?.native_session_id,
+    sessionId,
+  ]);
 
   // Delete session.json
   try {

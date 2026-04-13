@@ -50,6 +50,7 @@ import { tryReadCatalogManifest } from "../catalog/reader.js";
 import { DEFAULT_FRONTIER_MODEL } from "../config/models.js";
 import {
   addGeneratedAgentsMarker,
+  hasOmxManagedAgentsSections,
   isOmxGeneratedAgentsMd,
 } from "../utils/agents-md.js";
 import {
@@ -909,7 +910,7 @@ export async function setup(options: SetupOptions = {}): Promise<void> {
     if (agentsMdExists) {
       const existing = await readFile(agentsMdDst, "utf-8");
       changed = existing !== rewritten;
-      if (isOmxGeneratedAgentsMd(existing)) {
+      if (hasOmxManagedAgentsSections(existing)) {
         managedRefreshContent = upsertAgentsModelTable(
           existing,
           modelTableContext,

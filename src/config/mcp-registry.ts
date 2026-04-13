@@ -9,6 +9,7 @@ export interface UnifiedMcpRegistryServer {
   args: string[];
   enabled: boolean;
   startupTimeoutSec?: number;
+  approval_mode?: string;
 }
 
 export interface UnifiedMcpRegistryLoadResult {
@@ -21,6 +22,7 @@ export interface ClaudeCodeMcpServerConfig {
   command: string;
   args: string[];
   enabled: boolean;
+  approval_mode?: string;
 }
 
 export interface ClaudeCodeSettingsSyncPlan {
@@ -45,6 +47,7 @@ function toClaudeCodeMcpServerConfig(
     command: server.command,
     args: [...server.args],
     enabled: server.enabled,
+    ...(server.approval_mode !== undefined ? { approval_mode: server.approval_mode } : {}),
   };
 }
 function normalizeTimeout(
@@ -58,6 +61,21 @@ function normalizeTimeout(
     return undefined;
   }
   return Math.floor(value);
+}
+
+function normalizeApprovalMode(
+  value: unknown,
+  name: string,
+  warnings: string[],
+): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") {
+    warnings.push(
+      `registry entry "${name}" has non-string approval_mode; ignoring approval_mode`,
+    );
+    return undefined;
+  }
+  return value;
 }
 
 function normalizeEntry(
@@ -93,6 +111,7 @@ function normalizeEntry(
 
   const timeoutCandidate =
     value.timeout ?? value.startup_timeout_sec ?? value.startupTimeoutSec;
+  const approvalMode = normalizeApprovalMode(value.approval_mode, name, warnings);
 
   return {
     name,
@@ -100,6 +119,7 @@ function normalizeEntry(
     args: (argsValue as string[] | undefined) ?? [],
     enabled: enabledValue ?? true,
     startupTimeoutSec: normalizeTimeout(timeoutCandidate, name, warnings),
+    ...(approvalMode !== undefined ? { approval_mode: approvalMode } : {}),
   };
 }
 

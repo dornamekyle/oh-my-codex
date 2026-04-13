@@ -84,6 +84,13 @@ function buildOmxConfig(): string {
     'enabled = true',
     'startup_timeout_sec = 5',
     '',
+    '# OMX Wiki MCP Server',
+    '[mcp_servers.omx_wiki]',
+    'command = "node"',
+    'args = ["/path/to/wiki-server.js"]',
+    'enabled = true',
+    'startup_timeout_sec = 5',
+    '',
     '[agents.executor]',
     'description = "Code implementation"',
     'config_file = "/path/to/executor.toml"',
@@ -176,6 +183,11 @@ function buildMixedConfig(): string {
     'args = ["/path/to/trace-server.js"]',
     'enabled = true',
     '',
+    '[mcp_servers.omx_wiki]',
+    'command = "node"',
+    'args = ["/path/to/wiki-server.js"]',
+    'enabled = true',
+    '',
     '[agents.executor]',
     'description = "Code implementation"',
     'config_file = "/path/to/executor.toml"',
@@ -242,6 +254,7 @@ describe('omx uninstall', () => {
       assert.doesNotMatch(config, /omx_memory/);
       assert.doesNotMatch(config, /omx_code_intel/);
       assert.doesNotMatch(config, /omx_trace/);
+      assert.doesNotMatch(config, /omx_wiki/);
       assert.doesNotMatch(config, /\[agents\.executor\]/);
       assert.doesNotMatch(config, /\[tui\]/);
       assert.doesNotMatch(config, /notify\s*=/);
@@ -455,7 +468,7 @@ describe('omx uninstall', () => {
       if (shouldSkipForSpawnPermissions(res.error)) return;
       assert.equal(res.status, 0, res.stderr || res.stdout);
       assert.match(res.stdout, /Uninstall summary/);
-      assert.match(res.stdout, /MCP servers: omx_state, omx_memory, omx_code_intel, omx_trace/);
+      assert.match(res.stdout, /MCP servers: omx_state, omx_memory, omx_code_intel, omx_trace, omx_wiki/);
       assert.match(res.stdout, /Agent entries: 1/);
       assert.match(res.stdout, /TUI status line section/);
       assert.match(res.stdout, /Top-level keys/);

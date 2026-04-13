@@ -27,6 +27,7 @@ OMX only owns the wrapper entries that invoke `dist/scripts/codex-native-hook.js
 | OMC / OMX surface | Native Codex source | OMX runtime target | Status | Notes |
 | --- | --- | --- | --- | --- |
 | `session-start` | `SessionStart` | `session-start` | native | Native adapter refreshes session bookkeeping, restores startup developer context, and ensures `.omx/` is gitignored at the repo root |
+| wiki startup context | `SessionStart` | `session-start` | native | Wiki session-start context can append a compact `.omx/wiki/` summary when wiki pages exist; startup writes stay config-gated |
 | `keyword-detector` | `UserPromptSubmit` | `keyword-detector` | native | Persists skill activation state and can add prompt-side developer context |
 | `pre-tool-use` | `PreToolUse` (`Bash`) | `pre-tool-use` | native-partial | Current native scope is Bash-only; built-in native behavior is a narrow destructive-command caution via `systemMessage` |
 | `post-tool-use` | `PostToolUse` (`Bash`) | `post-tool-use` | native-partial | Current native scope is Bash-only; built-in native behavior covers command-not-found / permission-denied / missing-path guidance and informative non-zero-output review |
@@ -44,7 +45,18 @@ OMX only owns the wrapper entries that invoke `dist/scripts/codex-native-hook.js
 | code simplifier stop follow-up | none | runtime-only | runtime-fallback | Cleanup follow-up stays on runtime/fallback surfaces, not native Stop |
 | `SubagentStop` | none | runtime-only | not-supported-yet | OMC-specific lifecycle extension |
 | `session-end` | none | `session-end` | runtime-fallback | Still emitted from runtime/notify path, not native Codex hooks |
+| wiki session capture | none | `session-end` | runtime-fallback | Wiki session-log capture runs from the existing runtime session-end cleanup path, not from a native Codex hook |
 | `session-idle` | none | `session-idle` | runtime-fallback | Still emitted from runtime/notify path, not native Codex hooks |
+
+## Project wiki addendum (approved v1 backport)
+
+The approved OMX-native wiki backport keeps lifecycle ownership intentionally narrow:
+
+- **Storage** lives under `.omx/wiki/`, not `.omc/wiki/`.
+- **SessionStart** may surface bounded wiki context from `.omx/wiki/` when the wiki already exists, but it should stay read-mostly and must not block the native hook path on expensive writes or index rebuilds.
+- **SessionEnd** remains a runtime/notify-path responsibility for best-effort, non-blocking session capture into `.omx/wiki/`.
+- **PreCompact parity is intentionally deferred** in v1 unless a clearly OMX-native compaction seam exists.
+- **Routing should stay explicit**: prefer `$wiki` or task verbs like `wiki query` / `wiki add`, and avoid implicit bare `wiki` noun activation.
 
 ## Combined workflow note
 

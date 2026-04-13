@@ -191,6 +191,7 @@ See [Codex native hook mapping](./docs/codex-native-hooks.md) for the current na
 
 - `omx explore --prompt "..."` is for read-only repository lookup
 - `omx sparkshell <command>` is for shell-native inspection and bounded verification
+- when `.omx/wiki/` exists, `omx explore` can inject wiki-first context before falling back to broader repository search
 
 Examples:
 
@@ -198,6 +199,21 @@ Examples:
 omx explore --prompt "find where team state is written"
 omx sparkshell git status
 omx sparkshell --tmux-pane %12 --tail-lines 400
+```
+
+### Wiki
+
+- `omx wiki` is the CLI parity surface for the OMX wiki MCP server
+- wiki data lives locally under `.omx/wiki/`
+- the wiki is markdown-first and search-first, not vector-first
+
+Examples:
+
+```bash
+omx wiki list --json
+omx wiki query --input '{"query":"session-start lifecycle"}' --json
+omx wiki lint --json
+omx wiki refresh --json
 ```
 
 ### Platform notes for team mode
@@ -229,6 +245,7 @@ If this happens, try:
 
 - [Getting Started](./docs/getting-started.html)
 - [Demo guide](./DEMO.md)
+- [Wiki feature](./docs/wiki-feature.md)
 - [Agent catalog](./docs/agents.html)
 - [Skills reference](./docs/skills.html)
 - [Codex native hook mapping](./docs/codex-native-hooks.md)

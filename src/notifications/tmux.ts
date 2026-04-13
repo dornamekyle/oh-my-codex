@@ -10,6 +10,47 @@ import { buildCapturePaneArgv } from "./tmux-detector.js";
 const TMUX_PANE_TARGET_RE = /^%\d+$/;
 const DEFAULT_CAPTURE_LINES = 12;
 const MAX_CAPTURE_LINES = 2000;
+const ANSI_RE = /\x1b(?:[@-Z\\-_]|\[[0-9;]*[A-Za-z])/g;
+const OMX_METADATA_SEGMENT_RE = /^\[OMX(?:[#\]].*)?$/;
+const HUD_STATUS_SEGMENT_RE = /^(?:ralph:\d+\/(?:\d+|\?)|autopilot:[\w-]+|ralplan:(?:\d+\/(?:\d+|\?)|[\w-]+)|interview:[\w:-]+|research:[\w-]+|qa:[\w-]+|team:(?:\d+\s+workers|[\w.-]+)|ultrawork|turns:\d+|tokens:[\dkm.]+|quota:[\w%,.]+|session:[\dhms]+|last:\d+[smh](?:\s+ago)?|total-turns:\d+|tmux:[\w:.-]+)$/i;
+const BRANCH_METADATA_SEGMENT_RE = /^(?:(?:fix|feat|feature|chore|refactor|hotfix|release|docs|doc|test|tests|ci|build|perf|revert|bugfix|spike|wip)\/[A-Za-z0-9._/-]+|HEAD(?: -> [A-Za-z0-9._/-]+)?|detached)$/;
+
+function isMetadataOnlyTmuxSegment(segment: string): boolean {
+  return OMX_METADATA_SEGMENT_RE.test(segment)
+    || HUD_STATUS_SEGMENT_RE.test(segment)
+    || BRANCH_METADATA_SEGMENT_RE.test(segment);
+}
+
+function isMetadataOnlyTmuxLine(line: string): boolean {
+  const normalized = line.replace(ANSI_RE, "").trim();
+  if (!normalized) return false;
+
+  const segments = normalized.split("|").map((segment) => segment.trim()).filter(Boolean);
+  if (segments.length === 0 || segments.some((segment) => !isMetadataOnlyTmuxSegment(segment))) {
+    return false;
+  }
+
+  const hasExplicitStatusSegment = segments.some((segment) => OMX_METADATA_SEGMENT_RE.test(segment) || HUD_STATUS_SEGMENT_RE.test(segment));
+  return hasExplicitStatusSegment || (segments.length === 1 && BRANCH_METADATA_SEGMENT_RE.test(segments[0]));
+}
+
+/**
+ * Remove metadata-only tmux lines from alert-facing payload text while
+ * preserving real runtime failures. Raw capture helpers remain unchanged.
+ */
+export function sanitizeTmuxAlertText(raw: string | null | undefined): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const filtered = raw
+    .split("\n")
+    .filter((line) => !isMetadataOnlyTmuxLine(line));
+  const joined = filtered.join("\n").trim();
+  return joined || undefined;
+}
+
+export interface TmuxPaneCaptureResult {
+  content: string | null;
+  live: boolean;
+}
 
 function shouldUsePidFallback(): boolean {
   return process.env.OMX_TMUX_PID_FALLBACK === "1";
@@ -141,24 +182,46 @@ export function getTeamTmuxSessions(teamName: string): string[] {
  * Returns null if capture fails or tmux is not available.
  */
 export function captureTmuxPane(paneId?: string | null, lines: number = 12): string | null {
+  return captureTmuxPaneWithLiveness(paneId, lines).content;
+}
+
+export function captureTmuxPaneWithLiveness(paneId?: string | null, lines: number = 12): TmuxPaneCaptureResult {
   const target = paneId || process.env.TMUX_PANE;
-  if (!target) return null;
-  if (!process.env.TMUX && !paneId) return null;
-  if (!TMUX_PANE_TARGET_RE.test(target)) return null;
+  if (!target) return { content: null, live: false };
+  if (!process.env.TMUX && !paneId) return { content: null, live: false };
+  if (!TMUX_PANE_TARGET_RE.test(target)) return { content: null, live: false };
 
   const safeLines = Number.isFinite(lines) ? Math.trunc(lines) : DEFAULT_CAPTURE_LINES;
   const clampedLines = Math.max(1, Math.min(MAX_CAPTURE_LINES, safeLines));
 
   try {
+    const paneStatus = execFileSync("tmux", ["list-panes", "-t", target, "-F", "#{pane_dead} #{pane_pid}"], {
+      encoding: "utf-8",
+      timeout: 3000,
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+    }).trim();
+    const firstStatusLine = paneStatus.split("\n")[0]?.trim() || "";
+    const [paneDead = "", panePidRaw = ""] = firstStatusLine.split(/\s+/, 2);
+    const panePid = Number.parseInt(panePidRaw, 10);
+    if (paneDead === "1" || !Number.isFinite(panePid)) {
+      return { content: null, live: false };
+    }
+    try {
+      process.kill(panePid, 0);
+    } catch {
+      return { content: null, live: false };
+    }
+
     const output = execFileSync("tmux", buildCapturePaneArgv(target, clampedLines), {
       encoding: "utf-8",
       timeout: 3000,
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
     }).trim();
-    return output || null;
+    return { content: output || null, live: true };
   } catch {
-    return null;
+    return { content: null, live: false };
   }
 }
 

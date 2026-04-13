@@ -51,6 +51,10 @@ export const KEYWORD_TRIGGER_DEFINITIONS: readonly KeywordTriggerDefinition[] = 
   { keyword: 'fix build', skill: 'build-fix', priority: 6, guidance: 'Activate build-fix workflow' },
   { keyword: 'type errors', skill: 'build-fix', priority: 6, guidance: 'Activate build-fix workflow' },
 
+  { keyword: 'wiki query', skill: 'wiki', priority: 5, guidance: 'Activate the project wiki skill for search' },
+  { keyword: 'wiki add', skill: 'wiki', priority: 5, guidance: 'Activate the project wiki skill for page creation' },
+  { keyword: 'wiki lint', skill: 'wiki', priority: 5, guidance: 'Activate the project wiki skill for wiki health checks' },
+
   { keyword: 'code review', skill: 'code-review', priority: 6, guidance: 'Activate code-review workflow' },
   { keyword: 'code-review', skill: 'code-review', priority: 6, guidance: 'Activate code-review workflow' },
   { keyword: 'review code', skill: 'code-review', priority: 6, guidance: 'Activate code-review workflow' },

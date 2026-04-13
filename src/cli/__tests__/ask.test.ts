@@ -218,6 +218,38 @@ describe('omx ask', () => {
     }
   });
 
+  it('adds Claude skip-permissions for issue-work prompts only', async () => {
+    const wd = await mkdtemp(join(tmpdir(), 'omx-ask-issue-permissions-'));
+    try {
+      const fakeBin = join(wd, 'bin');
+      await mkdir(fakeBin, { recursive: true });
+
+      await writeFile(
+        join(fakeBin, 'claude'),
+        '#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo \"fake-claude\"; exit 0; fi\necho \"CLAUDE_ARGS:$*\"; exit 0\n',
+      );
+      await chmod(join(fakeBin, 'claude'), 0o755);
+
+      const env = { PATH: `${fakeBin}:${process.env.PATH || ''}` };
+
+      const issueRes = runOmx(wd, ['ask', 'claude', 'Investigate issue #1536 and summarize it'], env);
+      if (shouldSkipForSpawnPermissions(issueRes.error)) return;
+      assert.equal(issueRes.status, 0, issueRes.stderr || issueRes.stdout);
+      const issueArtifactPath = issueRes.stdout.trim();
+      const issueArtifact = await readFile(issueArtifactPath, 'utf-8');
+      assert.match(issueArtifact, /CLAUDE_ARGS:--dangerously-skip-permissions -p Investigate issue #1536 and summarize it/);
+
+      const genericRes = runOmx(wd, ['ask', 'claude', 'Summarize the README'], env);
+      assert.equal(genericRes.status, 0, genericRes.stderr || genericRes.stdout);
+      const genericArtifactPath = genericRes.stdout.trim();
+      const genericArtifact = await readFile(genericArtifactPath, 'utf-8');
+      assert.match(genericArtifact, /CLAUDE_ARGS:-p Summarize the README/);
+      assert.doesNotMatch(genericArtifact, /--dangerously-skip-permissions/);
+    } finally {
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
+
   it('injects --agent-prompt content into final prompt while keeping Original task raw', async () => {
     const wd = await mkdtemp(join(tmpdir(), 'omx-ask-agent-prompt-'));
     try {

@@ -47,6 +47,11 @@ function assertSingleOmxBlock(toml: string): void {
     "[mcp_servers.omx_trace] should appear once",
   );
   assert.equal(
+    count(toml, /^\[mcp_servers\.omx_wiki\]$/gm),
+    1,
+    "[mcp_servers.omx_wiki] should appear once",
+  );
+  assert.equal(
     count(toml, /^\[mcp_servers\.omx_team_run\]$/gm),
     0,
     "[mcp_servers.omx_team_run] should not be emitted",

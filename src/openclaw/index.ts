@@ -35,7 +35,7 @@ import type { OpenClawHookEvent, OpenClawContext, OpenClawResult } from "./types
 import { getOpenClawConfig, resolveGateway } from "./config.js";
 import { wakeGateway, wakeCommandGateway, interpolateInstruction, isCommandGateway } from "./dispatcher.js";
 import { basename } from "path";
-import { getCurrentTmuxSession, captureTmuxPane } from "../notifications/tmux.js";
+import { getCurrentTmuxSession, sanitizeTmuxAlertText } from "../notifications/tmux.js";
 
 /** Whether debug logging is enabled */
 const DEBUG = process.env.OMX_OPENCLAW_DEBUG === "1";
@@ -92,9 +92,12 @@ export async function wakeOpenClaw(
     const replyTarget = context.replyTarget ?? process.env.OPENCLAW_REPLY_TARGET ?? undefined;
     const replyThread = context.replyThread ?? process.env.OPENCLAW_REPLY_THREAD ?? undefined;
 
+    const sanitizedContextTmuxTail = sanitizeTmuxAlertText(context.tmuxTail);
+
     // Merge reply context into the context object for whitelisting
     const enrichedContext: OpenClawContext = {
       ...context,
+      tmuxTail: sanitizedContextTmuxTail,
       ...(replyChannel !== undefined && { replyChannel }),
       ...(replyTarget !== undefined && { replyTarget }),
       ...(replyThread !== undefined && { replyThread }),
@@ -103,18 +106,10 @@ export async function wakeOpenClaw(
     // Auto-detect tmux session if not provided in context
     const tmuxSession = enrichedContext.tmuxSession ?? getCurrentTmuxSession() ?? undefined;
 
-    // Auto-capture tmux pane content for stop/session-end events (best-effort)
-    let tmuxTail = enrichedContext.tmuxTail;
-    if (!tmuxTail && (event === "stop" || event === "session-end") && process.env.TMUX) {
-      try {
-        const paneId = process.env.TMUX_PANE;
-        if (paneId) {
-          tmuxTail = captureTmuxPane(paneId, 15) ?? undefined;
-        }
-      } catch {
-        // Non-blocking: tmux capture is best-effort
-      }
-    }
+    // Preserve only explicitly supplied tmux tails. Auto-capturing stop/session-end
+    // pane history here can replay historical pane lines after a session has been
+    // stopped or completed, which creates false follow-up alerts downstream.
+    const tmuxTail = enrichedContext.tmuxTail;
 
     // Build template variables from whitelisted context fields
     const variables: Record<string, string | undefined> = {

@@ -33,6 +33,7 @@ import {
   readSubagentSessionSummary,
 } from '../subagents/tracker.js';
 import { listNotifyCanonicalActiveTeams } from './notify-hook/active-team.js';
+import { sameFilePath } from '../utils/paths.js';
 
 function argValue(name: string, fallback = ''): string {
   const idx = process.argv.indexOf(name);
@@ -128,6 +129,7 @@ const RALPH_CONTINUE_TEXT = 'Ralph loop active continue';
 const RALPH_CONTINUE_CADENCE_MS = 60_000;
 const RALPH_STEER_LOCK_STALE_MS = 30_000;
 const RALPH_TERMINAL_PHASES = new Set(['complete', 'failed', 'cancelled']);
+const RALPH_STARTING_PHASE_TIMEOUT_MS = RALPH_CONTINUE_CADENCE_MS * 2;
 const QUIET_ONCE_EVENT_TYPES = new Set(['watcher_start', 'watcher_once_complete']);
 
 interface WatcherFileMeta {
@@ -457,8 +459,17 @@ function hasRalphTerminalState(raw: Record<string, unknown> | null | undefined):
   if (raw.active !== true) return true;
   const phase = safeString(raw.current_phase).trim().toLowerCase();
   if (phase && RALPH_TERMINAL_PHASES.has(phase)) return true;
+  if (isStaleRalphStartingPhase(raw)) return true;
   if (safeString(raw.completed_at).trim()) return true;
   return false;
+}
+
+function isStaleRalphStartingPhase(raw: Record<string, unknown>): boolean {
+  const phase = safeString(raw.current_phase).trim().toLowerCase();
+  if (phase !== 'starting') return false;
+  const reference = parseIsoMillis(safeString(raw.last_turn_at)) ?? parseIsoMillis(safeString(raw.started_at));
+  if (reference === null) return false;
+  return Date.now() - reference > RALPH_STARTING_PHASE_TIMEOUT_MS;
 }
 
 async function loadPersistedWatcherState(): Promise<void> {
@@ -537,6 +548,14 @@ async function resolveActiveModeState(mode: string): Promise<ActiveModeResult> {
       .then((content) => JSON.parse(content) as Record<string, unknown>)
       .catch(() => null);
     if (!parsed || typeof parsed !== 'object') continue;
+    if (mode === 'ralph' && dir !== stateDir && isStaleRalphStartingPhase(parsed)) {
+      return {
+        active: false,
+        reason: 'starting_stale',
+        path,
+        state: parsed,
+      };
+    }
     if (hasRalphTerminalState(parsed)) {
       return {
         active: false,
@@ -909,7 +928,7 @@ async function resolveAuthorityPrimaryWatcherHealth(now = Date.now()): Promise<A
 
   const existingRecord = await readPidFileRecord(pidFilePath).catch(() => null);
   if (!existingRecord) return createAuthorityBackoffState('pid_missing');
-  if (existingRecord.cwd && resolve(existingRecord.cwd) !== cwd) return createAuthorityBackoffState('cwd_mismatch');
+  if (existingRecord.cwd && !sameFilePath(existingRecord.cwd, cwd)) return createAuthorityBackoffState('cwd_mismatch');
   if (!isPidAlive(existingRecord.pid)) {
     return createAuthorityBackoffState('pid_stale', {
       primary_pid: existingRecord.pid,
@@ -1004,7 +1023,12 @@ async function runRalphContinueSteerTick(): Promise<void> {
     singleton_lock_path: ralphSteerLockPath,
   };
 
-  if (!activeRalph.active) return;
+  if (!activeRalph.active) {
+    if (activeRalph.reason === 'starting_stale') {
+      lastRalphContinueSteer.last_reason = 'starting_stale';
+    }
+    return;
+  }
 
   if (parseIsoMillis(lastRalphContinueSteer.last_sent_at) === null && parseIsoMillis(lastRalphContinueSteer.cooldown_anchor_at) === null) {
     lastRalphContinueSteer.cooldown_anchor_at = startupIso;

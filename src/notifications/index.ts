@@ -51,6 +51,7 @@ export {
   getTeamTmuxSessions,
   formatTmuxInfo,
   captureTmuxPane,
+  sanitizeTmuxAlertText,
 } from "./tmux.js";
 export {
   getNotificationConfig,
@@ -136,9 +137,19 @@ import {
 } from "./temp-contract.js";
 import { formatNotification } from "./formatter.js";
 import { dispatchNotifications } from "./dispatcher.js";
-import { getCurrentTmuxSession, captureTmuxPane } from "./tmux.js";
+import { getCurrentTmuxSession, sanitizeTmuxAlertText } from "./tmux.js";
 import { basename } from "path";
+import { omxStateDir } from "../utils/paths.js";
+import {
+  shouldSendLifecycleNotification,
+  recordLifecycleNotificationSent,
+} from "./lifecycle-dedupe.js";
 import type { OpenClawHookEvent } from "../openclaw/types.js";
+import { parseTmuxTail } from "./formatter.js";
+import {
+  shouldIncludeSessionIdleTmuxTail,
+  recordSessionIdleTmuxTailSent,
+} from "./idle-cooldown.js";
 
 // Suppress unused import — used by callers via re-export
 void getActiveProfileName;
@@ -225,21 +236,55 @@ export async function notifyLifecycle(
       incompleteTasks: data.incompleteTasks,
     };
 
-    // Capture tmux tail for session+ verbosity on idle/stop/end events
+    // Auto-capture tmux tail only for live idle events. Stop/end lifecycle dispatches
+    // happen after the relevant session is stopping or has already completed, so
+    // blind capture-pane reads can replay historical pane lines into follow-up
+    // alerts. Explicitly supplied tmuxTail still passes through unchanged.
     const verbosity = getVerbosity(config);
     if (
-      shouldIncludeTmuxTail(verbosity) &&
-      !data.tmuxTail &&
-      (event === "session-idle" || event === "session-stop" || event === "session-end")
+      shouldIncludeTmuxTail(verbosity)
+      && !data.tmuxTail
+      && event === "session-idle"
     ) {
-      payload.tmuxTail = captureTmuxPane(payload.tmuxPaneId) ?? undefined;
+      const { captureTmuxPaneWithLiveness } = await import("./tmux.js");
+      const tmuxCapture = captureTmuxPaneWithLiveness(payload.tmuxPaneId);
+      payload.tmuxTail = sanitizeTmuxAlertText(tmuxCapture.content);
+      payload.tmuxTailLive = tmuxCapture.live;
     } else {
-      payload.tmuxTail = data.tmuxTail;
+      payload.tmuxTail = sanitizeTmuxAlertText(data.tmuxTail);
+      payload.tmuxTailLive = data.tmuxTailLive;
+    }
+
+    const lifecycleStateDir = payload.projectPath ? omxStateDir(payload.projectPath) : "";
+    const normalizedIdleTmuxTail = event === "session-idle" ? parseTmuxTail(payload.tmuxTail || "") : "";
+    const sessionIdleTmuxTailAllowed = event !== "session-idle"
+      || shouldIncludeSessionIdleTmuxTail(lifecycleStateDir, payload.sessionId, normalizedIdleTmuxTail);
+
+    if (
+      event === "session-idle"
+      && !sessionIdleTmuxTailAllowed
+    ) {
+      payload.tmuxTail = undefined;
+      payload.tmuxTailLive = undefined;
     }
 
     payload.message = data.message || formatNotification(payload);
 
+    if (!shouldSendLifecycleNotification(lifecycleStateDir, payload)) {
+      return {
+        event,
+        anySuccess: true,
+        results: [],
+      };
+    }
+
     const result = await dispatchNotifications(config, event, payload);
+    if (result.anySuccess) {
+      recordLifecycleNotificationSent(lifecycleStateDir, payload);
+      if (event === "session-idle" && sessionIdleTmuxTailAllowed) {
+        recordSessionIdleTmuxTailSent(lifecycleStateDir, payload.sessionId, normalizedIdleTmuxTail);
+      }
+    }
 
     // Fire-and-forget OpenClaw gateway call
     const openClawEvent = toOpenClawEvent(event);

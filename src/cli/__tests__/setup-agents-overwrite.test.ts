@@ -106,7 +106,7 @@ describe('omx setup AGENTS refresh behavior', () => {
     const restoreTty = setMockTty(true);
     const home = join(wd, 'home');
     const restoreHome = setMockHome(home);
-    const existing = '# old agents file\n';
+    const existing = '# oh-my-codex - Intelligent Multi-Agent Orchestration\n\nUser-owned guidance.\n';
     try {
       await mkdir(join(wd, '.omx', 'state'), { recursive: true });
       await writeFile(join(wd, 'AGENTS.md'), existing);
@@ -121,7 +121,7 @@ describe('omx setup AGENTS refresh behavior', () => {
       assert.match(output, /agents_md: updated=1, unchanged=0, backed_up=1, skipped=0, removed=0/);
       assert.match(agentsContent, /^<!-- AUTONOMY DIRECTIVE — DO NOT REMOVE -->/);
       assert.match(agentsContent, /# oh-my-codex - Intelligent Multi-Agent Orchestration/);
-      assert.doesNotMatch(agentsContent, /# old agents file/);
+      assert.doesNotMatch(agentsContent, /User-owned guidance\./);
 
       const backupsRoot = join(wd, '.omx', 'backups', 'setup');
       assert.equal(existsSync(backupsRoot), true);
@@ -180,6 +180,81 @@ describe('omx setup AGENTS refresh behavior', () => {
       );
       assert.doesNotMatch(agentsContent, /legacy-frontier/);
       assert.doesNotMatch(agentsContent, /legacy-spark/);
+    } finally {
+      restoreHome();
+      restoreTty();
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
+
+  it('refreshes only the explicit OMX-owned model block inside a user-authored AGENTS.md', async () => {
+    const wd = await mkdtemp(join(tmpdir(), 'omx-setup-agents-'));
+    const restoreTty = setMockTty(false);
+    const home = join(wd, 'home');
+    const restoreHome = setMockHome(home);
+    try {
+      await mkdir(join(wd, '.omx', 'state'), { recursive: true });
+      const existing = [
+        '# Team Instructions',
+        '',
+        'Keep this custom guidance.',
+        '',
+        '<!-- OMX:MODELS:START -->',
+        '## Model Capability Table',
+        '',
+        '| Role | Model | Reasoning Effort | Use Case |',
+        '| --- | --- | --- | --- |',
+        '| Frontier (leader) | `legacy-frontier` | high | stale |',
+        '<!-- OMX:MODELS:END -->',
+        '',
+        'Footer guidance stays user-owned.',
+      ].join('\n');
+      await writeFile(join(wd, 'AGENTS.md'), existing);
+
+      const output = await runSetupWithCapturedLogs(wd, {
+        scope: 'project',
+      });
+
+      const agentsContent = await readFile(join(wd, 'AGENTS.md'), 'utf-8');
+      const expectedContext = resolveAgentsModelTableContext(
+        await readFile(join(wd, '.codex', 'config.toml'), 'utf-8'),
+        { codexHomeOverride: join(wd, '.codex') },
+      );
+
+      assert.match(output, /Refreshed AGENTS\.md model capability table in project root\./);
+      assert.match(agentsContent, /Keep this custom guidance\./);
+      assert.match(agentsContent, /Footer guidance stays user-owned\./);
+      assert.match(
+        agentsContent,
+        new RegExp(`\\| Frontier \\(leader\\) \\| \`${expectedContext.frontierModel}\` \\| high \\|`),
+      );
+      assert.doesNotMatch(agentsContent, /legacy-frontier/);
+      assert.doesNotMatch(agentsContent, /<!-- omx:generated:agents-md -->/);
+    } finally {
+      restoreHome();
+      restoreTty();
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves a title-only user-authored AGENTS.md by default when no OMX markers exist', async () => {
+    const wd = await mkdtemp(join(tmpdir(), 'omx-setup-agents-'));
+    const restoreTty = setMockTty(false);
+    const home = join(wd, 'home');
+    const restoreHome = setMockHome(home);
+    const existing = '# oh-my-codex - Intelligent Multi-Agent Orchestration\n\nUser-owned guidance.\n';
+    try {
+      await mkdir(join(wd, '.omx', 'state'), { recursive: true });
+      await writeFile(join(wd, 'AGENTS.md'), existing);
+
+      const output = await runSetupWithCapturedLogs(wd, {
+        scope: 'project',
+      });
+
+      assert.match(output, /Skipped AGENTS\.md overwrite/);
+      assert.doesNotMatch(output, /Refreshed AGENTS\.md model capability table/);
+      assert.equal(await readFile(join(wd, 'AGENTS.md'), 'utf-8'), existing);
+      assert.equal(existsSync(join(wd, '.omx', 'backups', 'setup')), false);
     } finally {
       restoreHome();
       restoreTty();

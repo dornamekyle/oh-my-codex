@@ -62,6 +62,48 @@ function safeString(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+function collectMessageTextFragments(value: unknown, fragments: string[]): void {
+  if (typeof value === 'string') {
+    if (value.trim() !== '') fragments.push(value);
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) collectMessageTextFragments(item, fragments);
+    return;
+  }
+
+  if (!value || typeof value !== 'object') return;
+
+  const record = value as Record<string, unknown>;
+  let usedPreferredField = false;
+  for (const key of ['text', 'message', 'content']) {
+    if (!(key in record)) continue;
+    usedPreferredField = true;
+    collectMessageTextFragments(record[key], fragments);
+  }
+  if (usedPreferredField) return;
+
+  for (const child of Object.values(record)) {
+    collectMessageTextFragments(child, fragments);
+  }
+}
+
+function extractMessageText(payload: Record<string, unknown>): string {
+  for (const candidate of [payload.text, payload.message, payload.content]) {
+    if (typeof candidate === 'string') {
+      if (candidate.trim() !== '') return candidate;
+      continue;
+    }
+
+    const fragments: string[] = [];
+    collectMessageTextFragments(candidate, fragments);
+    const text = fragments.join('\n').trim();
+    if (text) return text;
+  }
+  return '';
+}
+
 function derivedLog(entry: Record<string, unknown>): Promise<void> {
   return appendFile(logPath, `${JSON.stringify({ timestamp: new Date().toISOString(), ...entry })}\n`).catch(() => {});
 }
@@ -185,7 +227,7 @@ function inferDerivedEvent(parsed: Record<string, unknown> | null, meta: FileMet
   }
 
   if (payloadType === 'assistant_message') {
-    const message = safeString(payload.text || payload.message || payload.content);
+    const message = extractMessageText(payload);
     const looksLikeQuestion = /\?|\b(can you|could you|please provide|need input|what should)/i.test(message);
     if (looksLikeQuestion) {
       return {

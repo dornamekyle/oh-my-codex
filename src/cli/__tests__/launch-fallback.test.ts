@@ -164,4 +164,200 @@ exit 0
       await rm(wd, { recursive: true, force: true });
     }
   });
+
+  it('preserves the requested cwd through detached tmux launch when an unsupported SHELL value falls back away from rc-driven cwd drift', async () => {
+    const wd = await mkdtemp(join(tmpdir(), 'omx-launch-tmux-cwd-'));
+    try {
+      const home = join(wd, 'home');
+      const fakeBin = join(wd, 'bin');
+      const fakeCodexPath = join(fakeBin, 'codex');
+      const fakePsPath = join(fakeBin, 'ps');
+      const fakeTmuxPath = join(fakeBin, 'tmux');
+      const tmuxLogPath = join(wd, 'tmux.log');
+      const codexLogPath = join(wd, 'codex.log');
+
+      await mkdir(home, { recursive: true });
+      await mkdir(fakeBin, { recursive: true });
+      await writeFile(join(home, '.profile'), 'cd ..\n');
+      await writeFile(join(home, '.zshrc'), 'cd ..\n');
+      await writeFile(join(home, '.bashrc'), 'cd ..\n');
+      await writeFile(
+        fakeCodexPath,
+        `#!/bin/sh
+printf 'codex:%s\\n' "$*" >> "${codexLogPath}"
+printf 'codex-pwd:%s\\n' "$(pwd)" >> "${codexLogPath}"
+exit 0
+`,
+      );
+      await chmod(fakeCodexPath, 0o755);
+      await writeFile(fakePsPath, '#!/bin/sh\nexit 0\n');
+      await chmod(fakePsPath, 0o755);
+      await writeFile(
+        fakeTmuxPath,
+        `#!/bin/sh
+printf 'tmux:%s\n' "$*" >> "${tmuxLogPath}"
+cmd="$1"
+shift || true
+case "$cmd" in
+  -V)
+    printf 'tmux 3.4\\n'
+    exit 0
+    ;;
+  new-session)
+    for last; do :; done
+    if [ -n "\${last:-}" ]; then
+      /bin/sh -c "$last"
+    fi
+    printf 'leader-pane\\n'
+    exit 0
+    ;;
+  split-window)
+    printf 'hud-pane\\n'
+    exit 0
+    ;;
+  display-message)
+    if [ "$1" = '-p' ] && [ "$2" = '#{socket_path}' ]; then
+      printf '/tmp/tmux-test.sock\\n'
+    else
+      printf '0\\n'
+    fi
+    exit 0
+    ;;
+  show-options)
+    printf 'off\\n'
+    exit 0
+    ;;
+  set-option|set-hook|attach-session|kill-session|run-shell|resize-pane|select-pane)
+    exit 0
+    ;;
+esac
+exit 0
+`,
+      );
+      await chmod(fakeTmuxPath, 0o755);
+
+      const result = runOmx(
+        wd,
+        ['--madmax', '--tmux'],
+        {
+          HOME: home,
+          SHELL: '/definitely/missing-shell',
+          PATH: `${fakeBin}:/usr/bin:/bin`,
+          OMX_AUTO_UPDATE: '0',
+          OMX_NOTIFY_FALLBACK: '0',
+          OMX_HOOK_DERIVED_SIGNALS: '0',
+          TMUX: '',
+          TMUX_PANE: '',
+        },
+      );
+
+      if (shouldSkipForSpawnPermissions(result.error)) return;
+
+      const codexLog = await readFile(codexLogPath, 'utf-8');
+      assert.match(codexLog, /codex:.*--dangerously-bypass-approvals-and-sandbox/);
+      assert.match(codexLog, new RegExp(`codex-pwd:${wd.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+      assert.equal(result.status, 0, result.error || result.stderr || result.stdout);
+    } finally {
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to /bin/sh for detached tmux launch when SHELL drifts to an unsupported path', async () => {
+    const wd = await mkdtemp(join(tmpdir(), 'omx-launch-tmux-shell-fallback-'));
+    try {
+      const home = join(wd, 'home');
+      const fakeBin = join(wd, 'bin');
+      const fakeCodexPath = join(fakeBin, 'codex');
+      const fakePsPath = join(fakeBin, 'ps');
+      const fakeTmuxPath = join(fakeBin, 'tmux');
+      const tmuxLogPath = join(wd, 'tmux.log');
+      const codexLogPath = join(wd, 'codex.log');
+
+      await mkdir(home, { recursive: true });
+      await mkdir(fakeBin, { recursive: true });
+      await writeFile(join(home, '.profile'), 'cd ..\n');
+      await writeFile(
+        fakeCodexPath,
+        `#!/bin/sh
+printf 'codex:%s\\n' "$*" >> "${codexLogPath}"
+printf 'codex-pwd:%s\\n' "$(pwd)" >> "${codexLogPath}"
+exit 0
+`,
+      );
+      await chmod(fakeCodexPath, 0o755);
+      await writeFile(fakePsPath, '#!/bin/sh\nexit 0\n');
+      await chmod(fakePsPath, 0o755);
+      await writeFile(
+        fakeTmuxPath,
+        `#!/bin/sh
+printf 'tmux:%s\n' "$*" >> "${tmuxLogPath}"
+cmd="$1"
+shift || true
+case "$cmd" in
+  -V)
+    printf 'tmux 3.4\\n'
+    exit 0
+    ;;
+  new-session)
+    for last; do :; done
+    if [ -n "\${last:-}" ]; then
+      /bin/sh -c "$last"
+    fi
+    printf 'leader-pane\\n'
+    exit 0
+    ;;
+  split-window)
+    printf 'hud-pane\\n'
+    exit 0
+    ;;
+  display-message)
+    if [ "$1" = '-p' ] && [ "$2" = '#{socket_path}' ]; then
+      printf '/tmp/tmux-test.sock\\n'
+    else
+      printf '0\\n'
+    fi
+    exit 0
+    ;;
+  show-options)
+    printf 'off\\n'
+    exit 0
+    ;;
+  set-option|set-hook|attach-session|kill-session|run-shell|resize-pane|select-pane)
+    exit 0
+    ;;
+esac
+exit 0
+`,
+      );
+      await chmod(fakeTmuxPath, 0o755);
+
+      const result = runOmx(
+        wd,
+        ['--madmax', '--tmux'],
+        {
+          HOME: home,
+          SHELL: '/bin/not-a-real-shell',
+          PATH: `${fakeBin}:/usr/bin:/bin`,
+          OMX_AUTO_UPDATE: '0',
+          OMX_NOTIFY_FALLBACK: '0',
+          OMX_HOOK_DERIVED_SIGNALS: '0',
+          TMUX: '',
+          TMUX_PANE: '',
+        },
+      );
+
+      if (shouldSkipForSpawnPermissions(result.error)) return;
+
+      const tmuxLog = await readFile(tmuxLogPath, 'utf-8');
+      const codexLog = await readFile(codexLogPath, 'utf-8');
+      assert.match(tmuxLog, /\/bin\/sh/);
+      assert.doesNotMatch(tmuxLog, /not-a-real-shell/);
+      assert.match(codexLog, /codex:.*--dangerously-bypass-approvals-and-sandbox/);
+      assert.match(codexLog, new RegExp(`codex-pwd:${wd.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+      assert.equal(result.status, 0, result.error || result.stderr || result.stdout);
+    } finally {
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
+
 });

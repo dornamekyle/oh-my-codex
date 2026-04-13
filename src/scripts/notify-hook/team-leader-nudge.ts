@@ -22,8 +22,10 @@ import { DEFAULT_MARKER } from '../tmux-hook-engine.js';
 import { isLeaderRuntimeStale } from '../../team/leader-activity.js';
 import { appendTeamDeliveryLog } from '../../team/delivery-log.js';
 import { writeTeamLeaderAttention } from '../../team/state.js';
+import { readLatestTeamProgressEvidenceMs } from '../../team/progress-evidence.js';
 const LEADER_PANE_MISSING_NO_INJECTION_REASON = 'leader_pane_missing_no_injection';
 const LEADER_PANE_SHELL_NO_INJECTION_REASON = 'leader_pane_shell_no_injection';
+const LEADER_PANE_SAME_CLASSIFIED_STATE_SUPPRESSED_REASON = 'pane_already_shows_same_classified_state';
 const LEADER_NOTIFICATION_DEFERRED_TYPE = 'leader_notification_deferred';
 const ACK_WITHOUT_START_EVIDENCE_REASON = 'ack_without_start_evidence';
 const ACK_LIKE_PATTERNS = [
@@ -438,6 +440,27 @@ function formatMailboxBodyForLeader(body, maxLength = 40) {
   return `${normalized.slice(0, maxLength - 1)}…`;
 }
 
+function normalizeVisibleLeaderStateText(text) {
+  return safeString(text)
+    .toLowerCase()
+    .replace(/\[omx_tmux_inject\]/g, ' ')
+    .replace(/\[omx_intent:[^\]]+\]/g, ' ')
+    .replace(/said\s+"[^"]*"/g, 'said "<content>"')
+    .replace(/said\s+'[^']*'/g, 'said "<content>"')
+    .replace(/\b\d+[smhd](?:\s+\d+[smhd])*\b/g, '<duration>')
+    .replace(/\b\d+\b/g, '<n>')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function paneAlreadyShowsVisibleLeaderState(paneCapture, visibleText) {
+  const normalizedVisibleText = normalizeVisibleLeaderStateText(visibleText);
+  if (!normalizedVisibleText) return false;
+  const normalizedPaneCapture = normalizeVisibleLeaderStateText(paneCapture);
+  if (!normalizedPaneCapture) return false;
+  return normalizedPaneCapture.includes(normalizedVisibleText);
+}
+
 async function workerHasOwnedStartedTask(stateDir, teamName, workerName) {
   const tasksDir = join(stateDir, 'team', teamName, 'tasks');
   if (!existsSync(tasksDir)) return false;
@@ -674,11 +697,15 @@ export async function maybeNudgeTeamLeader({
     const workerTurnProgress = hasWorkerTurnProgress(progressSnapshot.workerSnapshot, previousTurnCounts);
     const hasTrackableTurnSignals = hasTrackableActiveWorkerTurns(progressSnapshot.workerSnapshot, previousTurnCounts);
     const progressChanged = !previousSignature || previousSignature !== progressSnapshot.signature || workerTurnProgress;
+    const extraProgressEvidenceMs = await readLatestTeamProgressEvidenceMs(cwd, teamName).catch(() => Number.NaN);
     const effectiveProgressAtMs = progressChanged || !Number.isFinite(previousProgressAtMs)
       ? nowMs
       : previousProgressAtMs;
-    const effectiveProgressAtIso = new Date(effectiveProgressAtMs).toISOString();
-    const stalledForMs = Math.max(0, nowMs - effectiveProgressAtMs);
+    const latestProgressEvidenceMs = Number.isFinite(extraProgressEvidenceMs)
+      ? Math.max(effectiveProgressAtMs, extraProgressEvidenceMs)
+      : effectiveProgressAtMs;
+    const effectiveProgressAtIso = new Date(latestProgressEvidenceMs).toISOString();
+    const stalledForMs = Math.max(0, nowMs - latestProgressEvidenceMs);
     const stallThresholdMs = hasTrackableTurnSignals ? workerTurnStallThresholdMs : fallbackProgressStallThresholdMs;
     const teamProgressStalled =
       progressSnapshot.workRemaining
@@ -686,6 +713,9 @@ export async function maybeNudgeTeamLeader({
       && !allWorkersIdle
       && !progressChanged
       && stalledForMs >= stallThresholdMs;
+    const hasFreshProgressEvidence =
+      progressSnapshot.workRemaining
+      && stalledForMs < stallThresholdMs;
     const leaderActionState = classifyLeaderActionState({
       allWorkersIdle,
       workerPanesAlive: paneStatus.alive,
@@ -722,7 +752,7 @@ export async function maybeNudgeTeamLeader({
 
     // Stale-leader follow-up is the only periodic visible nudge path.
     // This keeps the leader pane quieter when the leader is not actually stale.
-    const stalePanesNudge = paneStatus.alive && leaderStale;
+    const stalePanesNudge = paneStatus.alive && leaderStale && !hasFreshProgressEvidence;
     const previousStalledTeamNudge = prevReason === 'stuck_waiting_on_leader';
     const stalledTeamNudge = teamProgressStalled && (dueByTime || !previousStalledTeamNudge);
     const staleFollowupDue = stalePanesNudge && dueByTime;
@@ -919,6 +949,55 @@ export async function maybeNudgeTeamLeader({
         result: 'deferred',
         reason: deferredReason,
         orchestration_intent: orchestrationIntent,
+      }).catch(() => {});
+      continue;
+    }
+
+    if (paneAlreadyShowsVisibleLeaderState(paneGuard.paneCapture, capped)) {
+      nudgeState.last_nudged_by_team[teamName] = {
+        at: nowIso,
+        last_message_id: newestId || prevMsgId || '',
+        reason: nudgeReason,
+        orchestration_intent: orchestrationIntent,
+      };
+      if (shouldSendAllIdleNudge) {
+        nudgeState.last_idle_nudged_by_team[teamName] = {
+          at: nowIso,
+          worker_count: workerNames.length,
+          orchestration_intent: orchestrationIntent,
+        };
+      }
+
+      await emitTeamNudgeEvent(cwd, teamName, nudgeReason, orchestrationIntent, nowIso);
+
+      try {
+        await logTmuxHookEvent(logsDir, {
+          timestamp: nowIso,
+          type: 'team_leader_nudge',
+          team: teamName,
+          tmux_target: tmuxTarget,
+          reason: nudgeReason,
+          orchestration_intent: orchestrationIntent,
+          pane_count: paneStatus.paneCount,
+          leader_stale: leaderStale,
+          message_count: messages.length,
+          stalled_for_ms: teamProgressStalled ? stalledForMs : undefined,
+          missing_signal_workers: progressSnapshot.missingSignalWorkers,
+          visible_injection_suppressed: true,
+          suppression_reason: LEADER_PANE_SAME_CLASSIFIED_STATE_SUPPRESSED_REASON,
+        });
+      } catch { /* ignore */ }
+      await appendTeamDeliveryLog(logsDir, {
+        event: 'nudge_triggered',
+        source,
+        team: teamName,
+        to_worker: 'leader-fixed',
+        transport: 'send-keys',
+        result: 'suppressed',
+        reason: nudgeReason,
+        orchestration_intent: orchestrationIntent,
+        visible_injection_suppressed: true,
+        suppression_reason: LEADER_PANE_SAME_CLASSIFIED_STATE_SUPPRESSED_REASON,
       }).catch(() => {});
       continue;
     }

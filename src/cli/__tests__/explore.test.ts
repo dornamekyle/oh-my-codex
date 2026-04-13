@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { chmod, mkdtemp, readFile, rm, mkdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { dirname, join } from 'node:path';
@@ -10,6 +10,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   buildExploreHarnessArgs,
+  buildExplorePromptWithWikiContext,
   exploreCommand,
   EXPLORE_USAGE,
   loadExplorePrompt,
@@ -21,6 +22,7 @@ import {
   resolveExploreSparkShellRoute,
   resolvePackagedExploreHarnessCommand,
 } from '../explore.js';
+import { writePage, WIKI_SCHEMA_VERSION } from '../../wiki/index.js';
 import { withPackagedExploreHarnessHidden, withPackagedExploreHarnessLock } from './packaged-explore-harness-lock.js';
 
 function runOmx(
@@ -264,6 +266,95 @@ describe('loadExplorePrompt', () => {
   });
 });
 
+describe('buildExplorePromptWithWikiContext', () => {
+  it('injects wiki matches into the explore prompt when local wiki pages exist', async () => {
+    const wd = await mkdtemp(join(tmpdir(), 'omx-explore-wiki-'));
+    try {
+      writePage(wd, {
+        filename: 'runtime.md',
+        frontmatter: {
+          title: 'Runtime Architecture',
+          tags: ['runtime', 'hooks'],
+          created: '2026-01-01T00:00:00.000Z',
+          updated: '2026-01-01T00:00:00.000Z',
+          sources: ['test'],
+          links: [],
+          category: 'architecture',
+          confidence: 'high',
+          schemaVersion: WIKI_SCHEMA_VERSION,
+        },
+        content: '\n# Runtime Architecture\n\nSessionStart uses native hooks and session-end uses runtime cleanup.\n',
+      });
+
+      const prompt = buildExplorePromptWithWikiContext('how does session-start work', wd);
+      assert.match(prompt, /\[OMX Wiki Context\]/);
+      assert.match(prompt, /Runtime Architecture/);
+      assert.match(prompt, /prefer repository-backed facts/i);
+      assert.match(prompt, /Wiki mismatch/);
+      assert.match(prompt, /Original Explore Prompt/);
+      assert.equal(existsSync(join(wd, '.omx', 'wiki', 'log.md')), false);
+    } finally {
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
+
+  it('does not mutate wiki logs when building read-only wiki context', async () => {
+    const wd = await mkdtemp(join(tmpdir(), 'omx-explore-wiki-log-'));
+    try {
+      writePage(wd, {
+        filename: 'runtime.md',
+        frontmatter: {
+          title: 'Runtime Architecture',
+          tags: ['runtime', 'hooks'],
+          created: '2026-01-01T00:00:00.000Z',
+          updated: '2026-01-01T00:00:00.000Z',
+          sources: ['test'],
+          links: [],
+          category: 'architecture',
+          confidence: 'high',
+          schemaVersion: WIKI_SCHEMA_VERSION,
+        },
+        content: '\n# Runtime Architecture\n\nSessionStart uses native hooks and session-end uses runtime cleanup.\n',
+      });
+
+      buildExplorePromptWithWikiContext('session-start lifecycle', wd);
+      const logPath = join(wd, '.omx', 'wiki', 'log.md');
+      assert.equal(existsSync(logPath), false);
+
+      // sanity: direct query callers still log by default
+      const { queryWiki } = await import('../../wiki/index.js');
+      queryWiki(wd, 'session-start lifecycle');
+      assert.equal(existsSync(logPath), true);
+      assert.match(readFileSync(logPath, 'utf8'), /Query "session-start lifecycle"/);
+    } finally {
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
+
+  it('warns when wiki pages are missing or too weak', async () => {
+    const wd = await mkdtemp(join(tmpdir(), 'omx-explore-no-wiki-'));
+    try {
+      const prompt = buildExplorePromptWithWikiContext('find auth', wd);
+      assert.match(prompt, /\[OMX Wiki Status\]/);
+      assert.match(prompt, /build an initial project wiki/i);
+      assert.match(prompt, /Original Explore Prompt/);
+    } finally {
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
+
+  it('warns when the wiki directory is missing entirely', async () => {
+    const wd = await mkdtemp(join(tmpdir(), 'omx-explore-missing-wiki-'));
+    try {
+      const prompt = buildExplorePromptWithWikiContext('find auth', wd);
+      assert.match(prompt, /Wiki evidence is weak or missing/i);
+      assert.match(prompt, /build an initial project wiki/i);
+    } finally {
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('resolvePackagedExploreHarnessCommand', () => {
   it('uses a packaged native binary when metadata matches the current platform', async () => {
     const wd = await mkdtemp(join(tmpdir(), 'omx-explore-packaged-'));
@@ -493,14 +584,14 @@ describe('resolveExploreHarnessCommand', () => {
 
 describe('buildExploreHarnessArgs', () => {
   it('includes cwd, prompt, prompt contract, and constrained model settings', () => {
-    const args = buildExploreHarnessArgs('find auth', '/repo', {
+    const wd = join(tmpdir(), 'omx-explore-arg-test');
+    const args = buildExploreHarnessArgs('find auth', wd, {
       OMX_EXPLORE_SPARK_MODEL: 'spark-model',
     } as NodeJS.ProcessEnv, '/pkg');
-    assert.deepEqual(args, [
-      '--cwd',
-      '/repo',
-      '--prompt',
-      'find auth',
+    assert.deepEqual(args.slice(0, 3), ['--cwd', wd, '--prompt']);
+    assert.match(args[3] || '', /Original Explore Prompt/);
+    assert.match(args[3] || '', /find auth/);
+    assert.deepEqual(args.slice(4), [
       '--prompt-file',
       '/pkg/prompts/explore-harness.md',
       '--model-spark',

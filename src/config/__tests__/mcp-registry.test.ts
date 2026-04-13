@@ -87,6 +87,53 @@ describe("unified MCP registry loader", () => {
     }
   });
 
+  it("preserves string approval_mode values and warns on non-string ones", async () => {
+    const wd = await mkdtemp(join(tmpdir(), "omx-mcp-registry-"));
+    try {
+      const registryPath = join(wd, "registry.json");
+      await writeFile(
+        registryPath,
+        JSON.stringify({
+          eslint: {
+            command: "npx",
+            args: ["@eslint/mcp@latest"],
+            approval_mode: "never",
+          },
+          invalid_mode: {
+            command: "npx",
+            args: ["@example/mcp"],
+            approval_mode: 42,
+          },
+        }),
+      );
+
+      const result = await loadUnifiedMcpRegistry({
+        candidates: [registryPath],
+      });
+      assert.equal(result.servers.length, 2);
+      assert.deepEqual(result.servers[0], {
+        name: "eslint",
+        command: "npx",
+        args: ["@eslint/mcp@latest"],
+        enabled: true,
+        approval_mode: "never",
+        startupTimeoutSec: undefined,
+      });
+      assert.deepEqual(result.servers[1], {
+        name: "invalid_mode",
+        command: "npx",
+        args: ["@example/mcp"],
+        enabled: true,
+        startupTimeoutSec: undefined,
+      });
+      assert.deepEqual(result.warnings, [
+        'registry entry "invalid_mode" has non-string approval_mode; ignoring approval_mode',
+      ]);
+    } finally {
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
+
   it("returns canonical home-based registry candidates", () => {
     const candidates = getUnifiedMcpRegistryCandidates("/tmp/home");
     assert.deepEqual(candidates, ["/tmp/home/.omx/mcp-registry.json"]);
@@ -130,7 +177,15 @@ describe("unified MCP registry loader", () => {
 
     const parsed = JSON.parse(plan.content ?? "{}") as {
       theme?: string;
-      mcpServers?: Record<string, { command: string; args: string[]; enabled: boolean }>;
+      mcpServers?: Record<
+        string,
+        {
+          command: string;
+          args: string[];
+          enabled: boolean;
+          approval_mode?: string;
+        }
+      >;
     };
     assert.equal(parsed.theme, "dark");
     assert.deepEqual(parsed.mcpServers?.existing_server, {
@@ -142,6 +197,40 @@ describe("unified MCP registry loader", () => {
       command: "npx",
       args: ["@eslint/mcp@latest"],
       enabled: false,
+    });
+  });
+
+  it("includes approval_mode when adding missing Claude MCP servers", () => {
+    const plan = planClaudeCodeMcpSettingsSync(
+      JSON.stringify({ mcpServers: {} }, null, 2),
+      [
+        {
+          name: "eslint",
+          command: "npx",
+          args: ["@eslint/mcp@latest"],
+          enabled: false,
+          approval_mode: "never",
+        },
+      ],
+    );
+
+    const parsed = JSON.parse(plan.content ?? "{}") as {
+      mcpServers?: Record<
+        string,
+        {
+          command: string;
+          args: string[];
+          enabled: boolean;
+          approval_mode?: string;
+        }
+      >;
+    };
+
+    assert.deepEqual(parsed.mcpServers?.eslint, {
+      command: "npx",
+      args: ["@eslint/mcp@latest"],
+      enabled: false,
+      approval_mode: "never",
     });
   });
 

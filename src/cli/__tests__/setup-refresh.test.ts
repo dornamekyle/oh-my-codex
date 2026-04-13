@@ -462,10 +462,19 @@ describe("omx setup refresh summary and dry-run behavior", () => {
         registryPath,
         JSON.stringify({
           existing_server: { command: "existing-server", args: ["mcp"] },
-          eslint: { command: "npx", args: ["@eslint/mcp@latest"], enabled: false },
+          eslint: {
+            command: "npx",
+            args: ["@eslint/mcp@latest"],
+            enabled: false,
+            approval_mode: "never",
+          },
         }),
       );
 
+      await runSetupInTempDir(wd, {
+        scope: "user",
+        mcpRegistryCandidates: [registryPath],
+      });
       await runSetupInTempDir(wd, {
         scope: "user",
         mcpRegistryCandidates: [registryPath],
@@ -475,7 +484,15 @@ describe("omx setup refresh summary and dry-run behavior", () => {
         await readFile(join(wd, ".claude", "settings.json"), "utf-8"),
       ) as {
         uiTheme?: string;
-        mcpServers?: Record<string, { command: string; args: string[]; enabled: boolean }>;
+        mcpServers?: Record<
+          string,
+          {
+            command: string;
+            args: string[];
+            enabled: boolean;
+            approval_mode?: string;
+          }
+        >;
       };
       assert.equal(settings.uiTheme, "dark");
       assert.deepEqual(settings.mcpServers?.existing_server, {
@@ -487,6 +504,7 @@ describe("omx setup refresh summary and dry-run behavior", () => {
         command: "npx",
         args: ["@eslint/mcp@latest"],
         enabled: false,
+        approval_mode: "never",
       });
     } finally {
       if (typeof previousHome === "string") process.env.HOME = previousHome;

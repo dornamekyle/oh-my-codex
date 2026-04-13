@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -84,6 +84,24 @@ describe('session lifecycle manager', () => {
     }
   });
 
+
+  it('treats symlinked cwd aliases as authoritative for the same session state', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'omx-session-cwd-alias-'));
+    const aliasCwd = `${cwd}-alias`;
+    try {
+      await symlink(cwd, aliasCwd, process.platform === 'win32' ? 'junction' : 'dir');
+      await writeSessionStart(cwd, 'sess-alias');
+
+      const usable = await readUsableSessionState(aliasCwd);
+      assert.ok(usable);
+      assert.equal(usable?.session_id, 'sess-alias');
+      assert.equal(usable?.cwd, cwd);
+    } finally {
+      await rm(aliasCwd, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('writes session start/end lifecycle artifacts and archives session history', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'omx-session-lifecycle-'));
     const sessionId = 'sess-lifecycle-1';
@@ -124,6 +142,32 @@ describe('session lifecycle manager', () => {
       const dailyLog = await readFile(dailyLogPath, 'utf-8');
       assert.match(dailyLog, /"event":"session_start"/);
       assert.match(dailyLog, /"event":"session_end"/);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('removes canonical and native session-scoped hud state on session end', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'omx-session-end-hud-cleanup-'));
+    const canonicalSessionId = 'omx-launch-hud';
+    const nativeSessionId = 'codex-native-hud';
+    try {
+      await writeSessionStart(cwd, canonicalSessionId, { nativeSessionId });
+      const stateDir = join(cwd, '.omx', 'state');
+      const rootHudPath = join(stateDir, 'hud-state.json');
+      const canonicalHudPath = join(stateDir, 'sessions', canonicalSessionId, 'hud-state.json');
+      const nativeHudPath = join(stateDir, 'sessions', nativeSessionId, 'hud-state.json');
+      await mkdir(join(stateDir, 'sessions', canonicalSessionId), { recursive: true });
+      await mkdir(join(stateDir, 'sessions', nativeSessionId), { recursive: true });
+      await writeFile(rootHudPath, JSON.stringify({ last_turn_at: 'root', turn_count: 1 }), 'utf-8');
+      await writeFile(canonicalHudPath, JSON.stringify({ last_turn_at: 'canonical', turn_count: 2 }), 'utf-8');
+      await writeFile(nativeHudPath, JSON.stringify({ last_turn_at: 'native', turn_count: 9 }), 'utf-8');
+
+      await writeSessionEnd(cwd, canonicalSessionId);
+
+      assert.equal(existsSync(rootHudPath), false);
+      assert.equal(existsSync(canonicalHudPath), false);
+      assert.equal(existsSync(nativeHudPath), false);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }

@@ -46,6 +46,8 @@ import {
   getStateDir,
   listModeStateFilesWithScopePreference,
 } from "../mcp/state-paths.js";
+import { SKILL_ACTIVE_STATE_MODE, syncCanonicalSkillStateForMode } from "../state/skill-active.js";
+import { isTrackedWorkflowMode } from "../state/workflow-transition.js";
 import { maybeCheckAndPromptUpdate } from "./update.js";
 import { maybePromptGithubStar } from "./star-prompt.js";
 import {
@@ -107,6 +109,7 @@ import {
   planWorktreeTarget,
   ensureWorktree,
 } from "../team/worktree.js";
+import { ensureReusableNodeModules } from "../utils/repo-deps.js";
 import {
   OMX_NOTIFY_TEMP_CONTRACT_ENV,
   parseNotifyTempContractFromArgs,
@@ -165,6 +168,7 @@ Usage:
   omx trace     CLI parity for OMX trace MCP tools
   omx code-intel
                 CLI parity for OMX code-intel MCP tools
+  omx wiki      CLI parity for OMX wiki MCP tools
   omx sparkshell <command> [args...]
   omx sparkshell --tmux-pane <pane-id> [--tail-lines <100-1000>]
                 Run native sparkshell sidecar for direct command execution or explicit tmux-pane summarization
@@ -266,6 +270,7 @@ type CliCommand =
   | "hooks"
   | "hud"
   | "state"
+  | "wiki"
   | "status"
   | "cancel"
   | "help"
@@ -283,6 +288,7 @@ const NESTED_HELP_COMMANDS = new Set<CliCommand>([
   "hooks",
   "hud",
   "state",
+  "wiki",
   "ralph",
   "resume",
   "session",
@@ -741,6 +747,9 @@ export async function main(args: string[]): Promise<void> {
       case "code-intel":
         await mcpParityCommand("code-intel", args.slice(1));
         break;
+      case "wiki":
+        await mcpParityCommand("wiki", args.slice(1));
+        break;
       case "tmux-hook":
         await tmuxHookCommand(args.slice(1));
         break;
@@ -911,15 +920,29 @@ export async function launchWithHud(args: string[]): Promise<void> {
     notifyTempResult.passthroughArgs,
   );
   let cwd = launchCwd;
+  let worktreeDirty = false;
   if (parsedWorktree.mode.enabled) {
     const planned = planWorktreeTarget({
       cwd: launchCwd,
       scope: "launch",
       mode: parsedWorktree.mode,
     });
-    const ensured = ensureWorktree(planned);
+    const ensured = ensureWorktree(planned, { allowDirtyReuse: true });
     if (ensured.enabled) {
       cwd = ensured.worktreePath;
+      if (ensured.dirty) {
+        worktreeDirty = true;
+        process.stderr.write(
+          `[omx] Caution: worktree at ${cwd} has uncommitted changes.\n` +
+          `  The session will launch as-is. Resolve the dirty state with OMX after launch, then proceed with your task.\n`,
+        );
+      }
+      const depBootstrap = ensureReusableNodeModules(cwd);
+      if (depBootstrap.strategy === "symlink") {
+        console.log(`[omx] Reusing node_modules from ${depBootstrap.sourceNodeModulesPath}`);
+      } else if (depBootstrap.strategy === "missing" && depBootstrap.warning) {
+        console.warn(`[omx] ${depBootstrap.warning}`);
+      }
     }
   }
   const sessionId = `omx-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -956,7 +979,7 @@ export async function launchWithHud(args: string[]): Promise<void> {
 
   // ── Phase 1: preLaunch ──────────────────────────────────────────────────
   try {
-    await preLaunch(cwd, sessionId, notifyTempResult.contract, codexHomeOverride, enableNotifyFallbackAuthority);
+    await preLaunch(cwd, sessionId, notifyTempResult.contract, codexHomeOverride, enableNotifyFallbackAuthority, worktreeDirty);
   } catch (err) {
     // preLaunch errors must NOT prevent Codex from starting
     console.error(
@@ -996,6 +1019,7 @@ export async function execWithOverlay(args: string[]): Promise<void> {
     notifyTempResult.passthroughArgs,
   );
   let cwd = launchCwd;
+  let worktreeDirty = false;
 
   if (parsedWorktree.mode.enabled) {
     const planned = planWorktreeTarget({
@@ -1003,9 +1027,22 @@ export async function execWithOverlay(args: string[]): Promise<void> {
       scope: "launch",
       mode: parsedWorktree.mode,
     });
-    const ensured = ensureWorktree(planned);
+    const ensured = ensureWorktree(planned, { allowDirtyReuse: true });
     if (ensured.enabled) {
       cwd = ensured.worktreePath;
+      if (ensured.dirty) {
+        worktreeDirty = true;
+        process.stderr.write(
+          `[omx] Caution: worktree at ${cwd} has uncommitted changes.\n` +
+          `  The session will launch as-is. Resolve the dirty state with OMX after launch, then proceed with your task.\n`,
+        );
+      }
+      const depBootstrap = ensureReusableNodeModules(cwd);
+      if (depBootstrap.strategy === "symlink") {
+        console.log(`[omx] Reusing node_modules from ${depBootstrap.sourceNodeModulesPath}`);
+      } else if (depBootstrap.strategy === "missing" && depBootstrap.warning) {
+        console.warn(`[omx] ${depBootstrap.warning}`);
+      }
     }
   }
 
@@ -1036,7 +1073,7 @@ export async function execWithOverlay(args: string[]): Promise<void> {
   }
 
   try {
-    await preLaunch(cwd, sessionId, notifyTempResult.contract, codexHomeOverride, true);
+    await preLaunch(cwd, sessionId, notifyTempResult.contract, codexHomeOverride, true, worktreeDirty);
   } catch (err) {
     console.error(
       `[omx] preLaunch warning: ${err instanceof Error ? err.message : err}`,
@@ -2036,6 +2073,19 @@ function buildRecoveredPostLaunchModeState(
   };
 }
 
+function buildRecoveredPostLaunchSkillActiveState(
+  completedAt: string,
+): Record<string, unknown> {
+  return {
+    version: 1,
+    active: false,
+    skill: "",
+    phase: "complete",
+    updated_at: completedAt,
+    active_skills: [],
+  };
+}
+
 export async function cleanupPostLaunchModeStateFiles(
   cwd: string,
   sessionId: string,
@@ -2062,8 +2112,25 @@ export async function cleanupPostLaunchModeStateFiles(
             const completedAt = now().toISOString();
             await writeFile(
               path,
-              JSON.stringify(buildRecoveredPostLaunchModeState(mode, completedAt), null, 2),
+              JSON.stringify(
+                mode === SKILL_ACTIVE_STATE_MODE
+                  ? buildRecoveredPostLaunchSkillActiveState(completedAt)
+                  : buildRecoveredPostLaunchModeState(mode, completedAt),
+                null,
+                2,
+              ),
             );
+            if (isTrackedWorkflowMode(mode)) {
+              await syncCanonicalSkillStateForMode({
+                cwd,
+                mode,
+                active: false,
+                currentPhase: "cancelled",
+                sessionId: stateDir === getStateDir(cwd, sessionId) ? sessionId : undefined,
+                nowIso: completedAt,
+                source: "postLaunchCleanup",
+              });
+            }
           } catch (err) {
             writeWarn(
               `[omx] postLaunch: failed to recover mode state ${path}: ${err instanceof Error ? err.message : err}`,
@@ -2076,12 +2143,36 @@ export async function cleanupPostLaunchModeStateFiles(
         }
         continue;
       }
-      if (result.state.active !== true) continue;
+      const skillStateStillVisible = mode === SKILL_ACTIVE_STATE_MODE
+        && Array.isArray(result.state.active_skills)
+        && result.state.active_skills.length > 0;
+      if (result.state.active !== true && !skillStateStillVisible) continue;
 
       try {
+        const completedAt = now().toISOString();
+        if (mode === SKILL_ACTIVE_STATE_MODE) {
+          result.state.active = false;
+          result.state.phase = "complete";
+          result.state.updated_at = completedAt;
+          result.state.active_skills = [];
+          await writeFile(path, JSON.stringify(result.state, null, 2));
+          continue;
+        }
         result.state.active = false;
-        result.state.completed_at = now().toISOString();
+        result.state.current_phase = "cancelled";
+        result.state.completed_at = completedAt;
         await writeFile(path, JSON.stringify(result.state, null, 2));
+        if (isTrackedWorkflowMode(mode)) {
+          await syncCanonicalSkillStateForMode({
+            cwd,
+            mode,
+            active: false,
+            currentPhase: "cancelled",
+            sessionId: stateDir === getStateDir(cwd, sessionId) ? sessionId : undefined,
+            nowIso: completedAt,
+            source: "postLaunchCleanup",
+          });
+        }
       } catch (err) {
         writeWarn(
           `[omx] postLaunch: failed to update mode state ${path}: ${err instanceof Error ? err.message : err}`,
@@ -2133,6 +2224,7 @@ async function preLaunch(
   notifyTempContract?: NotifyTempContract,
   codexHomeOverride?: string,
   enableNotifyFallbackAuthority: boolean = false,
+  worktreeDirty: boolean = false,
 ): Promise<void> {
   // 1. Best-effort launch-safe orphan cleanup
   try {
@@ -2159,12 +2251,15 @@ async function preLaunch(
   );
   const overlay = await generateOverlay(cwd, sessionId, { orchestrationMode });
   const launchAppendix = await readLaunchAppendInstructions();
+  const dirtyWorktreeGuidance = worktreeDirty
+    ? `\n\n## Session start: dirty worktree detected\n\nThis worktree has uncommitted changes that were present when the session launched.\nBefore executing the requested task, resolve the dirty state first:\n1. Review uncommitted changes with \`git status\` and \`git diff\`.\n2. Commit, stash, or discard changes as appropriate.\n3. Then proceed with the original task.`
+    : "";
   const sessionInstructions =
     launchAppendix.trim().length > 0
       ? `${overlay}
 
-${launchAppendix}`
-      : overlay;
+${launchAppendix}${dirtyWorktreeGuidance}`
+      : `${overlay}${dirtyWorktreeGuidance}`;
   await writeSessionModelInstructionsFile(cwd, sessionId, sessionInstructions);
 
   // 3. Write session state
@@ -2681,6 +2776,15 @@ async function postLaunch(
     console.error(
       `[omx] postLaunch: session archive failed: ${err instanceof Error ? err.message : err}`,
     );
+  }
+
+  // 2.5. Best-effort wiki session capture
+  try {
+    const { onSessionEnd } = await import("../wiki/lifecycle.js");
+    onSessionEnd({ cwd, session_id: sessionId });
+  } catch (err) {
+    process.stderr.write(`[cli/index] operation failed: ${err}\n`);
+    // Non-fatal: wiki capture must never block session cleanup
   }
 
   // 3. Cancel any still-active modes

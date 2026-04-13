@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from 'fs';
 import { isAbsolute, join, resolve } from 'path';
 import {
   CODEX_BYPASS_FLAG,
+  CLAUDE_SKIP_PERMISSIONS_FLAG,
   MADMAX_FLAG,
   CONFIG_FLAG,
   LONG_CONFIG_FLAG,
@@ -55,12 +56,19 @@ const OMX_TEAM_WORKER_CLI_ENV = 'OMX_TEAM_WORKER_CLI';
 const OMX_TEAM_WORKER_CLI_MAP_ENV = 'OMX_TEAM_WORKER_CLI_MAP';
 const OMX_TEAM_WORKER_LAUNCH_MODE_ENV = 'OMX_TEAM_WORKER_LAUNCH_MODE';
 const OMX_TEAM_AUTO_INTERRUPT_RETRY_ENV = 'OMX_TEAM_AUTO_INTERRUPT_RETRY';
-const CLAUDE_SKIP_PERMISSIONS_FLAG = '--dangerously-skip-permissions';
 const GEMINI_PROMPT_INTERACTIVE_FLAG = '-i';
 const GEMINI_APPROVAL_MODE_FLAG = '--approval-mode';
 const GEMINI_APPROVAL_MODE_YOLO = 'yolo';
 const OMX_LEADER_NODE_PATH_ENV = 'OMX_LEADER_NODE_PATH';
 const OMX_LEADER_CLI_PATH_ENV = 'OMX_LEADER_CLI_PATH';
+const TMUX_WORKER_AMBIENT_ENV_ALLOWLIST = [
+  'HTTPS_PROXY',
+  'HTTP_PROXY',
+  'NO_PROXY',
+  'https_proxy',
+  'http_proxy',
+  'no_proxy',
+] as const;
 const TMUX_NO_UNDERLINE_STYLE_FLAGS = [
   'nounderscore',
   'nodouble-underscore',
@@ -291,6 +299,12 @@ async function sendKeyAsync(target: string, key: string): Promise<void> {
 
 async function capturePaneAsync(target: string): Promise<string> {
   const result = await runTmuxAsync(sharedBuildCapturePaneArgv(target, 80));
+  if (!result.ok) return '';
+  return result.stdout;
+}
+
+async function captureVisiblePaneAsync(target: string): Promise<string> {
+  const result = await runTmuxAsync(sharedBuildVisibleCapturePaneArgv(target));
   if (!result.ok) return '';
   return result.stdout;
 }
@@ -739,6 +753,16 @@ function buildModelInstructionsOverride(cwd: string, env: NodeJS.ProcessEnv): st
   return `${MODEL_INSTRUCTIONS_FILE_KEY}="${escapeTomlString(filePath)}"`;
 }
 
+function readTmuxWorkerAmbientEnv(env: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const inherited: Record<string, string> = {};
+  for (const key of TMUX_WORKER_AMBIENT_ENV_ALLOWLIST) {
+    const value = env[key];
+    if (typeof value !== 'string' || value.trim() === '') continue;
+    inherited[key] = value;
+  }
+  return inherited;
+}
+
 function resolveWorkerLaunchArgs(extraArgs: string[] = [], cwd: string = process.cwd(), env: NodeJS.ProcessEnv = process.env): string[] {
   const merged = [...extraArgs];
   const wantsBypass = process.argv.includes(CODEX_BYPASS_FLAG) || process.argv.includes(MADMAX_FLAG);
@@ -771,6 +795,10 @@ export function buildWorkerStartupCommand(
     initialPrompt,
     workerRole,
   );
+  const startupEnv = {
+    ...readTmuxWorkerAmbientEnv(process.env),
+    ...processSpec.env,
+  };
   const resolvedLeaderNodePath = processSpec.env[OMX_LEADER_NODE_PATH_ENV]?.trim() || resolveLeaderNodePath();
   const leaderNodeDir = /[\\/]/.test(resolvedLeaderNodePath)
     ? resolvedLeaderNodePath.replace(/[\\/][^\\/]+$/, '')
@@ -779,7 +807,7 @@ export function buildWorkerStartupCommand(
     const pathBootstrap = leaderNodeDir
       ? `$env:PATH = ${quotePowerShellArg(`${leaderNodeDir};`)} + $env:PATH`
       : '';
-    const envAssignments = Object.entries(processSpec.env)
+    const envAssignments = Object.entries(startupEnv)
       .map(([key, value]) => `$env:${key} = ${quotePowerShellArg(value)}`)
       .join('; ');
     const invocation = ['&', quotePowerShellArg(processSpec.command), ...processSpec.args.map(quotePowerShellArg)].join(' ');
@@ -800,7 +828,7 @@ export function buildWorkerStartupCommand(
   const cliInvocation = quotedArgs.length > 0 ? `exec ${processSpec.command} ${quotedArgs}` : `exec ${processSpec.command}`;
   const rcPrefix = launchSpec.rcFile ? `if [ -f ${launchSpec.rcFile} ]; then source ${launchSpec.rcFile}; fi; ` : '';
   const inner = `${rcPrefix}${pathPrefix}${cliInvocation}`;
-  const envParts = Object.entries(processSpec.env).map(([key, value]) => `${key}=${value}`);
+  const envParts = Object.entries(startupEnv).map(([key, value]) => `${key}=${value}`);
 
   return `env ${envParts.map(shellQuoteSingle).join(' ')} ${shellQuoteSingle(launchSpec.shell)} -c ${shellQuoteSingle(inner)}`;
 }
@@ -1345,6 +1373,13 @@ function sendLiteralTextOrThrow(target: string, text: string): void {
   }
 }
 
+function paneHasQueuedCodexSubmission(captured: string | null | undefined): boolean {
+  const normalized = normalizeTmuxCapture(captured ?? '');
+  if (normalized === '') return false;
+  return /messages to be submitted after next tool call/i.test(normalized)
+    || /press esc to interrupt and send immediately/i.test(normalized);
+}
+
 async function attemptSubmitRounds(
   target: string,
   text: string,
@@ -1368,8 +1403,17 @@ async function attemptSubmitRounds(
       }
     }
     await sleep(140);
-    const captured = await capturePaneAsync(target);
-    if (!normalizeTmuxCapture(captured).includes(normalizeTmuxCapture(text))) return true;
+    const [captured, visibleCapture] = await Promise.all([
+      capturePaneAsync(target),
+      captureVisiblePaneAsync(target),
+    ]);
+    const normalizedCapture = normalizeTmuxCapture(captured);
+    if (
+      !normalizedCapture.includes(normalizeTmuxCapture(text))
+      && !paneHasQueuedCodexSubmission(visibleCapture)
+    ) {
+      return true;
+    }
     await sleep(140);
   }
   return false;
@@ -1580,14 +1624,26 @@ export async function sendToWorker(
   // Post-submit verification: wait briefly and confirm the worker consumed the
   // trigger (draft disappeared or active-task indicator appeared). Fixes #391.
   await sleep(300);
-  const verifyCapture = await capturePaneAsync(target);
+  const [verifyCapture, verifyVisibleCapture] = await Promise.all([
+    capturePaneAsync(target),
+    captureVisiblePaneAsync(target),
+  ]);
   if (verifyCapture) {
     if (paneHasActiveTask(verifyCapture)) return;
-    if (!normalizeTmuxCapture(verifyCapture).includes(normalizeTmuxCapture(text))) return;
+    if (
+      !normalizeTmuxCapture(verifyCapture).includes(normalizeTmuxCapture(text))
+      && !paneHasQueuedCodexSubmission(verifyVisibleCapture)
+    ) {
+      return;
+    }
     // Draft still visible and no active task — one more C-m attempt.
     await sendKeyAsync(target, 'C-m');
     await sleep(150);
     await sendKeyAsync(target, 'C-m');
+    const finalVisibleCapture = await captureVisiblePaneAsync(target);
+    if (paneHasQueuedCodexSubmission(finalVisibleCapture)) {
+      throw new Error('sendToWorker: submit_queued_after_tool_call');
+    }
   }
 }
 

@@ -51,6 +51,7 @@ const OMX_MCP_SERVERS = [
   "omx_memory",
   "omx_code_intel",
   "omx_trace",
+  "omx_wiki",
 ];
 
 function detectOmxConfigArtifacts(config: string): {
